@@ -1,0 +1,2423 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>genieview Video Analysis</title>
+    <!-- Use Local Chart.js -->
+    <script src="/assets/chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --bg-grad-1: rgba(122, 162, 255, 0.25);
+        --bg-grad-2: rgba(157, 255, 179, 0.18);
+        --sidebar-bg: rgba(0, 0, 0, 0.3);
+        --panel: rgba(255, 255, 255, 0.06);
+        --panel2: rgba(255, 255, 255, 0.08);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.68);
+        --border: rgba(255, 255, 255, 0.12);
+        --accent: #7aa2ff;
+        --accent2: #9dffb3;
+        --danger: #ff6a7a;
+        --accent-bg: rgba(122, 162, 255, 0.1);
+        --accent-bg-strong: rgba(122, 162, 255, 0.2);
+        --surface-1: rgba(255, 255, 255, 0.04);
+        --surface-2: rgba(255, 255, 255, 0.08);
+        --surface-3: rgba(255, 255, 255, 0.05);
+        --surface-4: rgba(255, 255, 255, 0.06);
+        --surface-5: rgba(255, 255, 255, 0.03);
+        --surface-6: rgba(255, 255, 255, 0.1);
+        --input-bg: rgba(0, 0, 0, 0.2);
+        --select-bg: #1a1f2e;
+        --overlay: rgba(0, 0, 0, 0.45);
+        --modal-overlay: rgba(0, 0, 0, 0.7);
+        --shadow: rgba(0, 0, 0, 0.45);
+        --context-shadow: rgba(0, 0, 0, 0.5);
+        --log-bg: rgba(0, 0, 0, 0.3);
+        --login-card-bg: rgba(5, 10, 20, 0.78);
+        --login-hero-bg: linear-gradient(150deg, rgba(122, 162, 255, 0.2), rgba(157, 255, 179, 0.08));
+        --login-button-text: #0b1020;
+        --scrollbar: rgba(255, 255, 255, 0.28);
+        --scrollbar-hover: rgba(255, 255, 255, 0.42);
+        --chart-text: rgba(255, 255, 255, 0.92);
+        --chart-axis: rgba(255, 255, 255, 0.85);
+      }
+      :root[data-theme="light"] {
+        --bg: #f5f7fb;
+        --bg-grad-1: rgba(59, 111, 255, 0.16);
+        --bg-grad-2: rgba(37, 178, 106, 0.1);
+        --sidebar-bg: rgba(255, 255, 255, 0.9);
+        --panel: rgba(255, 255, 255, 0.95);
+        --panel2: rgba(255, 255, 255, 0.9);
+        --text: rgba(15, 23, 42, 0.92);
+        --muted: rgba(15, 23, 42, 0.6);
+        --border: rgba(15, 23, 42, 0.12);
+        --accent: #3b6fff;
+        --accent2: #25b26a;
+        --danger: #e04855;
+        --accent-bg: rgba(59, 111, 255, 0.12);
+        --accent-bg-strong: rgba(59, 111, 255, 0.2);
+        --surface-1: rgba(0, 0, 0, 0.04);
+        --surface-2: rgba(0, 0, 0, 0.08);
+        --surface-3: rgba(0, 0, 0, 0.05);
+        --surface-4: rgba(0, 0, 0, 0.06);
+        --surface-5: rgba(0, 0, 0, 0.03);
+        --surface-6: rgba(0, 0, 0, 0.1);
+        --input-bg: rgba(255, 255, 255, 0.9);
+        --select-bg: #ffffff;
+        --overlay: rgba(15, 23, 42, 0.2);
+        --modal-overlay: rgba(15, 23, 42, 0.35);
+        --shadow: rgba(15, 23, 42, 0.18);
+        --context-shadow: rgba(15, 23, 42, 0.18);
+        --log-bg: rgba(15, 23, 42, 0.06);
+        --login-card-bg: rgba(255, 255, 255, 0.92);
+        --login-hero-bg: linear-gradient(150deg, rgba(59, 111, 255, 0.12), rgba(37, 178, 106, 0.08));
+        --login-button-text: #ffffff;
+        --scrollbar: rgba(15, 23, 42, 0.28);
+        --scrollbar-hover: rgba(15, 23, 42, 0.45);
+        --chart-text: rgba(15, 23, 42, 0.85);
+        --chart-axis: rgba(15, 23, 42, 0.75);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        color: var(--text);
+        background: radial-gradient(
+            1200px 800px at 20% 10%,
+            var(--bg-grad-1),
+            transparent 60%
+          ),
+          radial-gradient(
+            900px 700px at 90% 40%,
+            var(--bg-grad-2),
+            transparent 55%
+          ),
+          var(--bg);
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+      }
+      a {
+        color: var(--accent);
+      }
+      
+      /* Sidebar */
+      .sidebar {
+        width: 240px;
+        background: var(--sidebar-bg);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        padding: 20px 0;
+        flex-shrink: 0;
+        transition: width 0.2s ease;
+      }
+      .sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 14px 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 10px;
+        gap: 10px;
+      }
+      .sidebar-title {
+        font-size: 18px;
+        font-weight: bold;
+        padding: 0;
+        color: var(--accent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sidebar-toggle {
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text);
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 16px;
+        flex: 0 0 auto;
+      }
+      .sidebar-toggle:hover {
+        background: var(--surface-2);
+      }
+      .nav-item {
+        padding: 12px 20px;
+        cursor: pointer;
+        color: var(--muted);
+        transition: all 0.2s;
+        border-left: 3px solid transparent;
+      }
+      .nav-item:hover {
+        background: var(--surface-3);
+        color: var(--text);
+      }
+      .nav-item.active {
+        background: var(--accent-bg);
+        color: var(--accent);
+        border-left-color: var(--accent);
+      }
+      body.sidebar-collapsed .sidebar {
+        display: none;
+      }
+      body.sidebar-drawer-open .sidebar {
+        display: flex;
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        z-index: 30;
+        width: 240px;
+      }
+
+      .sidebar-overlay {
+        position: fixed;
+        inset: 0;
+        background: var(--overlay);
+        display: none;
+        z-index: 20;
+      }
+      body.sidebar-drawer-open .sidebar-overlay {
+        display: block;
+      }
+
+      .menu-button {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        cursor: pointer;
+      }
+      .menu-button:hover {
+        background: var(--surface-2);
+      }
+      body.sidebar-collapsed .menu-button {
+        display: inline-flex;
+      }
+      body.sidebar-drawer-open .menu-button {
+        display: none;
+      }
+
+
+      /* Main Content */
+      .content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .page-view {
+        display: none;
+        flex: 1;
+        overflow: auto;
+        padding: 20px;
+      }
+      .page-view.active {
+        display: block;
+      }
+      .page-view {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar) transparent;
+      }
+      .page-view::-webkit-scrollbar {
+        width: 6px;
+      }
+      .page-view::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .page-view::-webkit-scrollbar-thumb {
+        background: var(--scrollbar);
+        border-radius: 999px;
+      }
+      .page-view::-webkit-scrollbar-thumb:hover {
+        background: var(--scrollbar-hover);
+      }
+
+      /* Components */
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+      }
+      .topbar-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .topbar-right {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .page-title {
+        font-size: 20px;
+        font-weight: bold;
+      }
+      .btn {
+        border: 1px solid var(--border);
+        background: var(--accent-bg);
+        color: var(--accent);
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.2s;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .btn:hover {
+        background: var(--accent-bg-strong);
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .form-group {
+        margin-bottom: 16px;
+      }
+      .form-label {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .form-control {
+        width: 100%;
+        padding: 10px;
+        background: var(--input-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        font-size: 14px;
+      }
+      .form-control:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      select.form-control option {
+        background: var(--select-bg);
+      }
+
+      /* Result Review Specifics */
+      .review-layout {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 20px;
+        /* flex: 1; Removed to allow natural height */
+        /* min-height: 0; Removed */
+      }
+      .panel {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: 14px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-1);
+      }
+      .panel-body {
+        padding: 12px;
+        /* flex: 1; Removed */
+        /* overflow: auto; Removed, will use max-height for specific panels if needed */
+      }
+      .actions-panel-body {
+        max-height: 600px;
+        overflow-y: auto;
+      }
+      video {
+        width: 100%;
+        height: auto;
+        display: block;
+        background: #000;
+        border-radius: 12px;
+        max-height: 60vh;
+      }
+
+      @media (max-width: 768px) {
+        body {
+          overflow: auto;
+        }
+        .sidebar {
+          position: fixed;
+          left: 0;
+          top: 0;
+          height: 100vh;
+          z-index: 30;
+          transform: translateX(-100%);
+          transition: transform 0.2s ease;
+          width: 240px;
+        }
+        body.sidebar-drawer-open .sidebar {
+          transform: translateX(0);
+        }
+        .menu-button {
+          display: inline-flex;
+        }
+        body.sidebar-drawer-open .menu-button {
+          display: none;
+        }
+        .content {
+          width: 100%;
+        }
+        .page-view {
+          padding: 14px;
+        }
+        .topbar {
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .topbar-right {
+          width: 100%;
+          flex-wrap: wrap;
+        }
+        .review-layout {
+          grid-template-columns: 1fr;
+        }
+        .actions-panel-body {
+          max-height: 50vh;
+        }
+      }
+      .actions-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .action-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface-5);
+        cursor: pointer;
+      }
+      .action-item:hover {
+        background: var(--surface-4);
+      }
+      .action-item.active {
+        border-color: rgba(122, 162, 255, 0.5);
+        background: var(--accent-bg-strong);
+      }
+      .action-label {
+        font-size: 13px;
+        color: var(--text);
+      }
+      .action-meta {
+        font-size: 11px;
+        color: var(--muted);
+        text-align: right;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        font-size: 11px;
+        color: var(--muted);
+        background: var(--surface-5);
+      }
+
+      /* Context Menu */
+      .context-menu {
+        display: none;
+        position: absolute;
+        z-index: 1000;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 4px 12px var(--context-shadow);
+        padding: 4px 0;
+        min-width: 120px;
+      }
+      .context-menu-item {
+        padding: 8px 16px;
+        font-size: 13px;
+        color: var(--text);
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .context-menu-item:hover {
+        background: var(--surface-6);
+      }
+
+      /* Modal */
+      .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--modal-overlay);
+        z-index: 2000;
+        justify-content: center;
+        align-items: center;
+      }
+      .modal-overlay.open {
+        display: flex;
+      }
+      .modal-content {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        width: 400px;
+        padding: 20px;
+        box-shadow: 0 8px 24px var(--shadow);
+      }
+      .modal-header {
+        font-size: 16px;
+        font-weight: bold;
+        margin-bottom: 16px;
+        color: var(--text);
+      }
+      .modal-form-group {
+        margin-bottom: 12px;
+      }
+      .modal-form-group label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .modal-input {
+        width: 100%;
+        background: var(--surface-3);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px;
+        color: var(--text);
+        font-size: 14px;
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .btn-modal {
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        border: 1px solid transparent;
+      }
+      .btn-cancel {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--text);
+      }
+      .btn-save {
+        background: var(--primary);
+        color: white;
+      }
+      .modal-message {
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+      }
+      .btn-ok {
+        background: var(--primary);
+        color: white;
+      }
+      
+      /* Analysis Log */
+      .log-panel {
+        margin-top: 20px;
+        background: var(--log-bg);
+        padding: 15px;
+        border-radius: 8px;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        color: var(--muted);
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      /* Stats Grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        margin-top: 20px;
+      }
+      .stat-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 15px;
+      }
+      .stat-title {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 5px;
+      }
+      .stat-value {
+        font-size: 18px;
+        font-weight: bold;
+      }
+
+      /* Advice Panel */
+      .advice-panel {
+        margin-top: 20px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 15px;
+      }
+      .advice-item {
+        margin-bottom: 10px;
+        padding-left: 20px;
+        position: relative;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .advice-item::before {
+        content: "•";
+        position: absolute;
+        left: 0;
+        color: var(--primary);
+        font-weight: bold;
+      }
+
+      /* Detailed Stats Table */
+      .stats-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        font-size: 13px;
+      }
+      .stats-table th, .stats-table td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      .stats-table th {
+        color: var(--muted);
+        font-weight: normal;
+      }
+
+      .sidebar-user {
+        padding: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-top: 1px solid var(--border);
+        margin-top: auto;
+      }
+      .sidebar-user-name {
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .btn-small {
+        padding: 6px 10px;
+        font-size: 12px;
+        border-radius: 8px;
+      }
+      .login-content {
+        width: 360px;
+      }
+      .login-error {
+        color: var(--danger);
+        font-size: 12px;
+        min-height: 16px;
+      }
+
+      .app-shell {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+      }
+
+      .user-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+      .user-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .user-table th, .user-table td {
+        padding: 10px 8px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      .user-table th {
+        color: var(--muted);
+        font-weight: normal;
+      }
+      .user-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: 1px solid var(--border);
+        color: var(--text);
+        background: var(--surface-4);
+      }
+      .user-pill.active {
+        color: var(--accent2);
+        border-color: rgba(157, 255, 179, 0.4);
+      }
+      .user-pill.inactive {
+        color: var(--danger);
+        border-color: rgba(255, 106, 122, 0.4);
+      }
+
+      .login-page {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+      }
+      body.login-active .login-page {
+        display: flex;
+      }
+      body.login-active .app-shell,
+      body.login-active .sidebar-overlay {
+        display: none;
+      }
+      .login-card {
+        width: min(980px, 100%);
+        background: var(--login-card-bg);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        box-shadow: 0 20px 60px var(--shadow);
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        overflow: hidden;
+      }
+      .login-hero {
+        padding: 48px 56px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        background: var(--login-hero-bg);
+      }
+      .login-brand {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: 0.5px;
+      }
+      .login-subtitle {
+        font-size: 18px;
+        color: var(--text);
+      }
+      .login-meta {
+        font-size: 13px;
+        color: var(--muted);
+        max-width: 280px;
+        line-height: 1.6;
+      }
+      .login-form {
+        padding: 48px 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 12px;
+      }
+      .login-title {
+        font-size: 20px;
+        font-weight: 600;
+      }
+      .login-button {
+        width: 100%;
+        padding: 10px 16px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(122, 162, 255, 0.9), rgba(157, 255, 179, 0.9));
+        border: none;
+        color: var(--login-button-text);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .login-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      @media (max-width: 900px) {
+        .login-card {
+          grid-template-columns: 1fr;
+        }
+        .login-hero {
+          padding: 32px;
+        }
+        .login-form {
+          padding: 32px;
+        }
+      }
+
+    </style>
+  </head>
+  <body class="login-active">
+    <div id="loginPage" class="login-page">
+      <div class="login-card">
+        <div class="login-hero">
+          <div class="login-brand">genieview AI</div>
+          <div class="login-subtitle">视频动作分析与标注平台</div>
+          <div class="login-meta">登录后进入系统主页，统一查看检测任务、结果统计与标注审核。</div>
+        </div>
+        <div class="login-form">
+          <div class="login-title">欢迎回来</div>
+          <div class="modal-form-group">
+            <label>用户名</label>
+            <input type="text" id="loginUsername" class="modal-input">
+          </div>
+          <div class="modal-form-group">
+            <label>密码</label>
+            <input type="password" id="loginPassword" class="modal-input">
+          </div>
+          <div class="login-error" id="loginError"></div>
+          <button class="login-button" id="btnConfirmLogin">登录</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+    <div class="app-shell" id="appShell">
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">genieview AI</div>
+          <button id="sidebarToggle" class="sidebar-toggle" type="button">⟨</button>
+        </div>
+        <div class="nav-item active" data-short="检" data-tab="detection" onclick="switchTab('detection')">视觉检测</div>
+        <div class="nav-item" data-short="看" data-tab="review" onclick="switchTab('review')">结果查看</div>
+        <div class="nav-item" data-short="管" data-tab="users" id="navUsers" onclick="switchTab('users')" style="display:none;">用户管理</div>
+        <div class="nav-item" data-short="设" data-tab="settings" onclick="switchTab('settings')">设置</div>
+        <div class="sidebar-user">
+          <div class="sidebar-user-name" id="sidebarUser">未登录</div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-small" id="btnShowLogin">登录</button>
+            <button class="btn btn-small" id="btnLogout" style="display:none;">退出</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+      
+      <!-- Tab 1: Visual Detection -->
+      <div id="view-detection" class="page-view active">
+        <div class="topbar">
+          <div class="topbar-left">
+            <button class="menu-button" type="button" data-menu-button>☰</button>
+            <div class="page-title">视觉检测任务</div>
+          </div>
+        </div>
+        
+        <div class="panel" style="max-width: 600px; margin: 0 auto; width: 100%;">
+          <div class="panel-header">新建任务</div>
+          <div class="panel-body">
+            <div class="form-group">
+              <label class="form-label">选择视频</label>
+              <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+                  <select id="detectVideoSelect" class="form-control" style="flex: 1;">
+                    <option value="">加载中...</option>
+                  </select>
+              </div>
+              
+              <!-- Upload Section -->
+              <div style="display: flex; gap: 10px; align-items: center; border: 1px dashed var(--border); padding: 10px; border-radius: 8px;">
+                <span style="font-size: 12px; color: var(--muted); white-space: nowrap;">上传视频到 data/:</span>
+                <input type="file" id="uploadInput" accept="video/*" style="font-size: 12px; color: var(--muted); flex: 1;">
+                <button id="btnUpload" class="btn" style="padding: 4px 12px; font-size: 12px;">上传</button>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">模型</label>
+              <select id="detectModel" class="form-control">
+                <option value="gemini-1.5-flash" data-price-in="0.075" data-price-out="0.30">genieview 1.5 Flash (快速/便宜)</option>
+                <option value="gemini-1.5-pro" data-price-in="3.50" data-price-out="10.50">genieview 1.5 Pro (高精度)</option>
+                <option value="gemini-2.0-flash-exp" data-price-in="0.0" data-price-out="0.0">genieview 2.0 Flash Exp (免费预览)</option>
+                <option value="gemini-2.5-flash" data-price-in="0.30" data-price-out="1.00">genieview 2.5 Flash (高性能/平衡)</option>
+                <option value="gemini-2.5-pro" data-price-in="5.00" data-price-out="15.00">genieview 2.5 Pro (最强推理)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">FPS (每秒采样帧数)</label>
+              <input type="number" id="detectFps" class="form-control" value="1.0" step="0.1" min="0.1" max="30">
+            </div>
+
+            <!-- Cost Estimate -->
+            <button id="btnEstimateCost" class="btn" style="width: 100%; margin-bottom: 12px; background: rgba(157, 255, 179, 0.1); color: var(--accent2); border-color: rgba(157, 255, 179, 0.3);">预估费用</button>
+            <div id="costEstimate" style="margin-bottom: 16px; padding: 10px; background: rgba(122, 162, 255, 0.1); border-radius: 8px; font-size: 13px; display: none;">
+                <div style="font-weight: bold; color: var(--accent);">预估费用: $<span id="costValue">0.0000</span></div>
+                <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
+                  基于: <span id="costDuration">0</span>s 视频 | 输入 <span id="costTokensIn">0</span> | 输出 <span id="costTokensOut">0</span> | 思考 <span id="costTokensThink">0</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                  <div>
+                    <div style="color: var(--muted); font-size: 11px; margin-bottom: 6px;">预计输出 tokens</div>
+                    <input type="number" id="estimateOutTokens" class="form-control" value="1200" min="0" step="100" style="padding: 8px; font-size: 12px;">
+                  </div>
+                  <div>
+                    <div style="color: var(--muted); font-size: 11px; margin-bottom: 6px;">预计思考 tokens</div>
+                    <input type="number" id="estimateThinkingTokens" class="form-control" value="2000" min="0" step="200" style="padding: 8px; font-size: 12px;">
+                  </div>
+                </div>
+                <details style="margin-top: 10px;">
+                  <summary style="cursor: pointer; color: var(--muted); font-size: 12px;">查看详细公式与中间量</summary>
+                  <div style="margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.6;">
+                    <div>1) 采样帧数 N = ceil(T × fps) = ceil(<span id="costT">0</span> × <span id="costFps">0</span>) = <span id="costFrames">0</span></div>
+                    <div>2) 视觉输入 tokens V = N × k = <span id="costFrames2">0</span> × <span id="costTokPerFrame">258</span> = <span id="costVisionTokens">0</span></div>
+                    <div>3) 输入 tokens In = V + P = <span id="costVisionTokens2">0</span> + <span id="costPromptTokens">0</span> = <span id="costInTokens">0</span></div>
+                    <div>4) 计费输出 tokens Out_bill = Out + Think = <span id="costOutTokens">0</span> + <span id="costThinkTokens">0</span> = <span id="costBillableOutTokens">0</span></div>
+                    <div>5) 输入费用 C_in = In / 1e6 × price_in = <span id="costInTokens2">0</span> / 1e6 × <span id="costPriceIn">0</span> = $<span id="costInUSD">0.0000</span></div>
+                    <div>6) 输出费用 C_out = Out_bill / 1e6 × price_out = <span id="costBillableOutTokens2">0</span> / 1e6 × <span id="costPriceOut">0</span> = $<span id="costOutUSD">0.0000</span></div>
+                    <div style="margin-top: 6px; color: var(--text);">总费用 C = C_in + C_out = $<span id="costTotalUSD2">0.0000</span></div>
+                    <div style="margin-top: 6px; font-size: 11px;">说明：P 为固定提示词/结构化输出等估算 tokens；k 为每帧视觉 token 估算系数；Think 为“思考/推理 tokens”估算（按输出单价计）。</div>
+                  </div>
+                </details>
+            </div>
+
+            <button id="btnStartDetect" class="btn" style="width: 100%">开始检测与标注</button>
+          </div>
+        </div>
+
+        <div style="max-width: 600px; margin: 12px auto 0; width: 100%; display: flex; justify-content: flex-end;">
+          <button id="btnToggleDetectLog" class="btn btn-small">折叠日志</button>
+        </div>
+        <div id="detectLog" class="log-panel" style="display: none;"></div>
+      </div>
+
+      <!-- Tab 2: Result Review -->
+      <div id="view-review" class="page-view">
+        <div class="topbar">
+          <div class="topbar-left">
+            <button class="menu-button" type="button" data-menu-button>☰</button>
+            <div class="page-title">结果查看</div>
+          </div>
+          <div class="topbar-right">
+            <select id="reviewResultSelect" class="form-control" style="width: 200px; display: none;" tabindex="-1">
+              <option value="">选择结果文件...</option>
+            </select>
+            <select id="reviewVideoSelect" class="form-control" style="width: 200px;">
+              <option value="">选择视频文件...</option>
+            </select>
+            <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="loadResultList()">刷新</button>
+          </div>
+        </div>
+
+        <div class="review-layout">
+          <!-- Left: Video -->
+          <div class="panel">
+            <div class="panel-header">
+              <div id="videoName">未选择视频</div>
+              <div class="pill" id="nowPlaying">00:00</div>
+            </div>
+            <div class="panel-body" style="background: #000; display: flex; align-items: center; justify-content: center;">
+              <video id="video" controls playsinline></video>
+            </div>
+          </div>
+
+          <!-- Right: Actions -->
+          <div class="panel">
+            <div class="panel-header">
+              <div>Actions <span class="pill" id="actionCount">0</span></div>
+              <div class="pill" id="activeAction">-</div>
+            </div>
+            <div class="panel-body actions-panel-body">
+              <div id="actionsList" class="actions-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Stats & Advice -->
+        <div class="stats-grid">
+           <div class="stat-card">
+             <div class="stat-title">动作总数</div>
+             <div class="stat-value" id="statTotal">-</div>
+           </div>
+           <div class="stat-card">
+             <div class="stat-title">动作种类</div>
+             <div class="stat-value" id="statTypes">-</div>
+           </div>
+           <div class="stat-card">
+             <div class="stat-title">平均时长</div>
+             <div class="stat-value" id="statAvg">-</div>
+           </div>
+        </div>
+
+        <div class="panel" style="margin-top: 20px;">
+            <div class="panel-header">动作种类分布 (柱状图)</div>
+            <div class="panel-body" style="display: block !important; height: auto !important; min-height: 520px !important;">
+                <div style="display: block; width: 100%; height: 500px; overflow: hidden;">
+                    <canvas id="actionChart" width="800" height="500"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="advice-panel">
+            <div class="panel-header" style="padding:0; margin-bottom:15px; border:0">工艺流程改进建议</div>
+            <div id="adviceList">
+                <div style="color:var(--muted)">暂无建议</div>
+            </div>
+        </div>
+      </div>
+
+      <div id="view-users" class="page-view">
+        <div class="topbar">
+          <div class="topbar-left">
+            <button class="menu-button" type="button" data-menu-button>☰</button>
+            <div class="page-title">用户管理</div>
+          </div>
+          <div class="topbar-right">
+            <button class="btn" id="btnCreateUser">新增用户</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="user-toolbar">
+              <div>用户列表</div>
+              <button class="btn" style="padding: 5px 10px; font-size: 12px;" id="btnRefreshUsers">刷新</button>
+            </div>
+          </div>
+          <div class="panel-body" style="overflow-x: auto;">
+            <table class="user-table" id="userTable">
+              <thead>
+                <tr>
+                  <th>用户名</th>
+                  <th>角色</th>
+                  <th>邮箱</th>
+                  <th>API Key</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
+                  <th>数据量</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="userTableBody"></tbody>
+            </table>
+            <div id="userEmpty" style="color: var(--muted); font-size: 13px; padding: 12px 0; display: none;">暂无用户</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Settings -->
+      <div id="view-settings" class="page-view">
+        <div class="topbar">
+          <div class="topbar-left">
+            <button class="menu-button" type="button" data-menu-button>☰</button>
+            <div class="page-title">系统设置</div>
+          </div>
+        </div>
+        <div class="panel" style="max-width: 600px; margin: 0 auto; width: 100%;">
+          <div class="panel-header">通用设置</div>
+          <div class="panel-body">
+            <div class="form-group">
+                <label class="form-label">主题模式</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select id="settingsTheme" class="form-control" style="max-width: 220px;">
+                        <option value="dark">深色模式</option>
+                        <option value="light">浅色模式</option>
+                    </select>
+                </div>
+                <div style="margin-top: 8px; font-size: 12px; color: var(--muted);">
+                  切换后立即生效，并记住你的选择。
+                </div>
+            </div>
+            <p style="color: var(--muted); font-size: 13px;">当前版本: v1.1.0 (genieview 2.0 Ready)</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div id="contextMenu" class="context-menu">
+      <div class="context-menu-item" id="btnEditAction">编辑动作</div>
+    </div>
+
+    <div id="userModal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header" id="userModalTitle">新增用户</div>
+        <div class="modal-form-group">
+          <label>用户名</label>
+          <input type="text" id="userFormUsername" class="modal-input">
+        </div>
+        <div class="modal-form-group">
+          <label id="userFormPasswordLabel">密码</label>
+          <input type="password" id="userFormPassword" class="modal-input">
+        </div>
+        <div class="modal-form-group">
+          <label>邮箱</label>
+          <input type="text" id="userFormEmail" class="modal-input">
+        </div>
+        <div class="modal-form-group">
+          <label>API Key</label>
+          <input type="text" id="userFormApiKey" class="modal-input">
+        </div>
+        <div class="modal-form-group">
+          <label>角色</label>
+          <select id="userFormRole" class="modal-input">
+            <option value="user">普通用户</option>
+            <option value="admin">管理员</option>
+          </select>
+        </div>
+        <div class="modal-form-group">
+          <label>状态</label>
+          <select id="userFormStatus" class="modal-input">
+            <option value="active">启用</option>
+            <option value="inactive">停用</option>
+          </select>
+        </div>
+        <div class="login-error" id="userFormError"></div>
+        <div class="modal-actions">
+          <button class="btn-modal btn-cancel" id="btnUserCancel">取消</button>
+          <button class="btn-modal btn-save" id="btnUserSave">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="editModal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">编辑动作</div>
+        <div class="modal-form-group">
+          <label>动作标签</label>
+          <input type="text" id="editLabel" class="modal-input">
+        </div>
+        <div class="modal-form-group">
+          <label>描述</label>
+          <input type="text" id="editDescription" class="modal-input">
+        </div>
+        <div class="modal-form-group">
+          <label>开始时间 (s)</label>
+          <input type="number" step="0.1" id="editStart" class="modal-input">
+        </div>
+        <div class="modal-form-group">
+          <label>结束时间 (s)</label>
+          <input type="number" step="0.1" id="editEnd" class="modal-input">
+        </div>
+        <div class="modal-actions">
+          <button class="btn-modal btn-cancel" id="btnCancelEdit">取消</button>
+          <button class="btn-modal btn-save" id="btnSaveEdit">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="notifyModal" class="modal-overlay">
+      <div class="modal-content" style="width: 420px;">
+        <div class="modal-header" id="notifyTitle">Genieview 通知</div>
+        <div class="modal-message" id="notifyMessage"></div>
+        <div class="modal-actions">
+          <button class="btn-modal btn-ok" id="btnNotifyOk">确定</button>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+    <script>
+      function brandReplace(text) {
+        return String(text).replace(/gemini/gi, 'genieview');
+      }
+
+      function notify(message) {
+        const modal = document.getElementById('notifyModal');
+        const title = document.getElementById('notifyTitle');
+        const body = document.getElementById('notifyMessage');
+        const ok = document.getElementById('btnNotifyOk');
+        if (!modal || !body || !ok) return;
+        if (title) title.textContent = 'Genieview 通知';
+        body.textContent = String(message ?? '');
+        modal.classList.add('open');
+        ok.onclick = () => {
+          modal.classList.remove('open');
+        };
+        modal.onclick = (e) => {
+          if (e.target === modal) modal.classList.remove('open');
+        };
+        document.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return;
+          ok.click();
+        }, { once: true });
+      }
+
+      function getToken() {
+        try { return localStorage.getItem('auth_token') || ''; } catch { return ''; }
+      }
+
+      function setToken(token) {
+        try {
+          if (token) localStorage.setItem('auth_token', token);
+          else localStorage.removeItem('auth_token');
+        } catch {}
+      }
+
+      function setLoginActive(active) {
+        document.body.classList.toggle('login-active', Boolean(active));
+      }
+
+      function getThemeColor(name, fallback) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return value || fallback || '';
+      }
+
+      function applyTheme(theme) {
+        const normalized = theme === 'light' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', normalized);
+        try {
+          localStorage.setItem('ui_theme', normalized);
+        } catch {}
+        if (typeof renderStats === 'function') {
+          renderStats(currentStats);
+        }
+      }
+
+      function bindEnterToButton(container, button) {
+        if (!container || !button) return;
+        const inputs = container.querySelectorAll('input, select');
+        inputs.forEach(el => {
+          el.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            button.click();
+          });
+        });
+      }
+
+      let currentUser = null;
+      let userCache = {};
+
+      function updateAdminUI() {
+        const navUsers = document.getElementById('navUsers');
+        const viewUsers = document.getElementById('view-users');
+        const isAdmin = currentUser && currentUser.role === 'admin';
+        if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
+        if (viewUsers) viewUsers.style.display = isAdmin ? '' : 'none';
+        if (!isAdmin) {
+          const view = document.getElementById('view-users');
+          if (view && view.classList.contains('active')) {
+            switchTab('review');
+          }
+        }
+      }
+
+      async function authFetch(url, options = {}) {
+        const opts = { ...options };
+        opts.headers = { ...(opts.headers || {}) };
+        const token = getToken();
+        if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+        const res = await fetch(url, opts);
+        if (res.status === 401) {
+          setToken('');
+          setLoginActive(true);
+        }
+        return res;
+      }
+
+      async function refreshMe() {
+        const nameEl = document.getElementById('sidebarUser');
+        const btnLogin = document.getElementById('btnShowLogin');
+        const btnLogout = document.getElementById('btnLogout');
+        const token = getToken();
+        if (!token) {
+          nameEl.textContent = '未登录';
+          btnLogin.style.display = 'inline-block';
+          btnLogout.style.display = 'none';
+          currentUser = null;
+          updateAdminUI();
+          setLoginActive(true);
+          return;
+        }
+        try {
+          const res = await authFetch('/api/me');
+          if (!res.ok) throw new Error('not ok');
+          const data = await res.json();
+          const user = (data && data.user) || null;
+          if (user) {
+            nameEl.textContent = user.username + ' (' + user.role + ')';
+            btnLogin.style.display = 'none';
+            btnLogout.style.display = 'inline-block';
+            currentUser = user;
+            updateAdminUI();
+            setLoginActive(false);
+            return;
+          }
+        } catch {}
+        nameEl.textContent = '未登录';
+        btnLogin.style.display = 'inline-block';
+        btnLogout.style.display = 'none';
+        currentUser = null;
+        updateAdminUI();
+        setLoginActive(true);
+      }
+
+      function setupAuthUI() {
+        const btnShowLogin = document.getElementById('btnShowLogin');
+        const btnConfirm = document.getElementById('btnConfirmLogin');
+        const btnLogout = document.getElementById('btnLogout');
+        const err = document.getElementById('loginError');
+        const loginPage = document.getElementById('loginPage');
+        if (btnShowLogin) btnShowLogin.onclick = () => { err.textContent = ''; setLoginActive(true); };
+        bindEnterToButton(loginPage, btnConfirm);
+        if (btnConfirm) btnConfirm.onclick = async () => {
+          err.textContent = '';
+          const u = document.getElementById('loginUsername').value.trim();
+          const p = document.getElementById('loginPassword').value;
+          try {
+            const res = await fetch('/api/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: u, password: p }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              err.textContent = data && data.error ? ('登录失败: ' + data.error) : '登录失败';
+              return;
+            }
+            setToken(data.token);
+            await refreshMe();
+            await loadVideoList();
+            await loadResultList();
+          } catch (e) {
+            err.textContent = '网络错误';
+          }
+        };
+        if (btnLogout) btnLogout.onclick = async () => {
+          setToken('');
+          await refreshMe();
+        };
+        refreshMe();
+      }
+
+      function appendLog(el, text) {
+        el.textContent += brandReplace(text);
+      }
+
+      function setLog(el, text) {
+        el.textContent = brandReplace(text);
+      }
+
+      function isMobile() {
+        return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+      }
+
+      function setSidebarToggleIcon() {
+        const btn = document.getElementById('sidebarToggle');
+        if (!btn) return;
+        if (isMobile()) {
+          btn.textContent = '✕';
+          return;
+        }
+        btn.textContent = document.body.classList.contains('sidebar-collapsed') ? '⟩' : '⟨';
+      }
+
+      function setSidebarCollapsed(nextCollapsed) {
+        document.body.classList.toggle('sidebar-collapsed', Boolean(nextCollapsed));
+        try {
+          localStorage.setItem('sidebar_collapsed', nextCollapsed ? '1' : '0');
+        } catch {}
+        setSidebarDrawerOpen(false);
+        setSidebarToggleIcon();
+      }
+
+      function setSidebarDrawerOpen(nextOpen) {
+        document.body.classList.toggle('sidebar-drawer-open', Boolean(nextOpen));
+        setSidebarToggleIcon();
+      }
+
+      function initSidebar() {
+        let collapsed = false;
+        try {
+          collapsed = localStorage.getItem('sidebar_collapsed') === '1';
+        } catch {}
+        if (isMobile()) {
+          document.body.classList.remove('sidebar-collapsed');
+          setSidebarDrawerOpen(false);
+        } else {
+          setSidebarCollapsed(collapsed);
+          setSidebarDrawerOpen(false);
+        }
+        setSidebarToggleIcon();
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        initSidebar();
+        const btn = document.getElementById('sidebarToggle');
+        const overlay = document.getElementById('sidebarOverlay');
+        const menuButtons = document.querySelectorAll('[data-menu-button]');
+        if (btn) {
+          btn.addEventListener('click', () => {
+            if (isMobile()) {
+              setSidebarDrawerOpen(false);
+              return;
+            }
+            if (document.body.classList.contains('sidebar-collapsed')) {
+              setSidebarCollapsed(false);
+              return;
+            }
+            setSidebarCollapsed(true);
+          });
+        }
+        menuButtons.forEach(el => {
+          el.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const isOpen = document.body.classList.contains('sidebar-drawer-open');
+            if (isOpen) {
+              setSidebarDrawerOpen(false);
+              return;
+            }
+            setTimeout(() => setSidebarDrawerOpen(true), 0);
+          });
+        });
+        if (overlay) {
+          overlay.addEventListener('click', () => {
+            setSidebarDrawerOpen(false);
+          });
+        }
+        window.addEventListener('resize', () => initSidebar());
+        setupAuthUI();
+        setupUserManagement();
+      });
+
+      function switchTab(tabId) {
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        const navTarget = Array.from(document.querySelectorAll('.nav-item')).find(el => el.dataset.tab === tabId);
+        if (navTarget) navTarget.classList.add('active');
+
+        document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
+        document.getElementById('view-' + tabId).classList.add('active');
+
+        if (tabId === 'detection') loadVideoList();
+        if (tabId === 'review') loadResultList();
+        if (tabId === 'users') loadUserList();
+        setSidebarDrawerOpen(false);
+      }
+
+      function formatBytes(bytes) {
+        if (!bytes) return '-';
+        const mb = bytes / (1024 * 1024);
+        if (mb < 1024) return mb.toFixed(2) + ' MB';
+        return (mb / 1024).toFixed(2) + ' GB';
+      }
+
+      function formatRole(role) {
+        return role === 'admin' ? '管理员' : '普通用户';
+      }
+
+      function formatStatus(status) {
+        return status === 'inactive' ? '停用' : '启用';
+      }
+
+      function formatTime(value) {
+        if (!value) return '-';
+        const dt = new Date(value);
+        if (Number.isNaN(dt.getTime())) return String(value);
+        return dt.toLocaleString();
+      }
+
+      function maskApiKey(value) {
+        const raw = (value || '').trim();
+        if (!raw) return '-';
+        const head = raw.slice(0, 8);
+        return `${head}******`;
+      }
+
+      async function loadUserList() {
+        if (!currentUser || currentUser.role !== 'admin') return;
+        const body = document.getElementById('userTableBody');
+        const empty = document.getElementById('userEmpty');
+        if (!body || !empty) return;
+        body.innerHTML = '';
+        empty.style.display = 'none';
+        try {
+          const res = await authFetch('/api/users');
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data && data.error ? data.error : '加载失败');
+          }
+          const users = data.users || [];
+          userCache = {};
+          if (!users.length) {
+            empty.style.display = 'block';
+            return;
+          }
+          users.forEach(u => {
+            userCache[u.username] = u;
+            const tr = document.createElement('tr');
+            const statusClass = u.status === 'inactive' ? 'user-pill inactive' : 'user-pill active';
+            tr.innerHTML = `
+              <td>${u.username}</td>
+              <td>${formatRole(u.role)}</td>
+              <td>${u.email || '-'}</td>
+              <td>${maskApiKey(u.api_key)}</td>
+              <td><span class="${statusClass}">${formatStatus(u.status)}</span></td>
+              <td>${formatTime(u.created_at)}</td>
+              <td>${formatBytes(u.data_usage)}</td>
+              <td><button class="btn btn-small" data-action="edit-user" data-username="${u.username}">编辑</button></td>
+            `;
+            body.appendChild(tr);
+          });
+        } catch (e) {
+          notify('用户列表加载失败: ' + e.message);
+        }
+      }
+
+      function openUserModal(mode, user) {
+        const modal = document.getElementById('userModal');
+        const title = document.getElementById('userModalTitle');
+        const usernameEl = document.getElementById('userFormUsername');
+        const passwordEl = document.getElementById('userFormPassword');
+        const passwordLabel = document.getElementById('userFormPasswordLabel');
+        const emailEl = document.getElementById('userFormEmail');
+        const apiKeyEl = document.getElementById('userFormApiKey');
+        const roleEl = document.getElementById('userFormRole');
+        const statusEl = document.getElementById('userFormStatus');
+        const err = document.getElementById('userFormError');
+        if (!modal || !title || !usernameEl || !passwordEl || !emailEl || !apiKeyEl || !roleEl || !statusEl || !err) return;
+        err.textContent = '';
+        modal.dataset.mode = mode;
+        if (mode === 'edit' && user) {
+          title.textContent = '编辑用户';
+          usernameEl.value = user.username || '';
+          usernameEl.readOnly = true;
+          passwordEl.value = '';
+          passwordLabel.textContent = '新密码 (留空不变)';
+          emailEl.value = user.email || '';
+          apiKeyEl.value = user.api_key || '';
+          roleEl.value = user.role || 'user';
+          statusEl.value = user.status || 'active';
+        } else {
+          title.textContent = '新增用户';
+          usernameEl.value = '';
+          usernameEl.readOnly = false;
+          passwordEl.value = '';
+          passwordLabel.textContent = '密码';
+          emailEl.value = '';
+          apiKeyEl.value = '';
+          roleEl.value = 'user';
+          statusEl.value = 'active';
+        }
+        modal.classList.add('open');
+      }
+
+      function closeUserModal() {
+        const modal = document.getElementById('userModal');
+        if (modal) modal.classList.remove('open');
+      }
+
+      function setupUserManagement() {
+        const btnCreate = document.getElementById('btnCreateUser');
+        const btnRefresh = document.getElementById('btnRefreshUsers');
+        const btnCancel = document.getElementById('btnUserCancel');
+        const btnSave = document.getElementById('btnUserSave');
+        const table = document.getElementById('userTable');
+        if (btnCreate) btnCreate.onclick = () => openUserModal('create');
+        if (btnRefresh) btnRefresh.onclick = () => loadUserList();
+        if (btnCancel) btnCancel.onclick = () => closeUserModal();
+        if (table) {
+          table.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action="edit-user"]');
+            if (!btn) return;
+            const username = btn.getAttribute('data-username');
+            const user = userCache[username] || null;
+            if (user) openUserModal('edit', user);
+          });
+        }
+        const modal = document.getElementById('userModal');
+        if (modal) {
+          modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeUserModal();
+          });
+        }
+        bindEnterToButton(modal, btnSave);
+        if (btnSave) {
+          btnSave.onclick = async () => {
+            const modal = document.getElementById('userModal');
+            const err = document.getElementById('userFormError');
+            const usernameEl = document.getElementById('userFormUsername');
+            const passwordEl = document.getElementById('userFormPassword');
+            const emailEl = document.getElementById('userFormEmail');
+            const apiKeyEl = document.getElementById('userFormApiKey');
+            const roleEl = document.getElementById('userFormRole');
+            const statusEl = document.getElementById('userFormStatus');
+            if (!modal || !err || !usernameEl || !passwordEl || !emailEl || !apiKeyEl || !roleEl || !statusEl) return;
+            err.textContent = '';
+            const mode = modal.dataset.mode || 'create';
+            const username = usernameEl.value.trim();
+            const password = passwordEl.value;
+            const email = emailEl.value.trim();
+            const apiKey = apiKeyEl.value.trim();
+            const role = roleEl.value;
+            const status = statusEl.value;
+            try {
+              let res;
+              if (mode === 'edit') {
+                res = await authFetch('/api/users/update', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    username,
+                    email,
+                    api_key: apiKey,
+                    role,
+                    status,
+                    new_password: password || ''
+                  })
+                });
+              } else {
+                res = await authFetch('/api/users', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    username,
+                    password,
+                    email,
+                    api_key: apiKey,
+                    role,
+                    status
+                  })
+                });
+              }
+              const data = await res.json();
+              if (!res.ok) {
+                throw new Error(data && data.error ? data.error : '保存失败');
+              }
+              closeUserModal();
+              await loadUserList();
+            } catch (e) {
+              err.textContent = e.message || '保存失败';
+            }
+          };
+        }
+      }
+
+      // Upload Logic
+      const btnUpload = document.getElementById('btnUpload');
+      const uploadInput = document.getElementById('uploadInput');
+      
+      btnUpload.addEventListener('click', async () => {
+        const file = uploadInput.files[0];
+        if (!file) {
+            notify("请先选择文件");
+            return;
+        }
+        
+        btnUpload.disabled = true;
+        btnUpload.textContent = "上传中...";
+        
+        try {
+            // Use raw body upload with filename header
+            const res = await authFetch('/api/upload', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'X-Filename': file.name
+                },
+                body: file
+            });
+            const data = await res.json();
+            
+            if (data.status === 'success') {
+                notify("上传成功!");
+                await loadVideoList();
+                // Auto select the new file
+                const sel = document.getElementById('detectVideoSelect');
+                sel.value = data.path;
+                sel.dispatchEvent(new Event('change'));
+            } else {
+                notify("上传失败: " + JSON.stringify(data));
+            }
+        } catch (e) {
+            notify("上传出错: " + e.message);
+        } finally {
+            btnUpload.disabled = false;
+            btnUpload.textContent = "上传";
+            uploadInput.value = '';
+        }
+      });
+
+      // Cost Estimation Logic
+      const modelSelect = document.getElementById('detectModel');
+      const fpsInput = document.getElementById('detectFps');
+      const costDiv = document.getElementById('costEstimate');
+      
+      let selectedVideoDuration = 0;
+
+      function updateCost() {
+        if (selectedVideoDuration === 0) {
+            notify("请先选择视频以获取时长");
+            costDiv.style.display = 'none';
+            return;
+        }
+        
+        const opt = modelSelect.selectedOptions[0];
+        const priceIn = parseFloat(opt.dataset.priceIn);
+        const priceOut = parseFloat(opt.dataset.priceOut);
+        
+        const fps = parseFloat(fpsInput.value) || 1.0;
+        const tokensPerFrame = 258;
+        const promptTokens = 800;
+        const frames = Math.ceil(selectedVideoDuration * fps);
+        const visionTokens = frames * tokensPerFrame;
+        const inputTokens = visionTokens + promptTokens;
+
+        const outputTokens = Math.max(0, parseInt(document.getElementById('estimateOutTokens').value || '0', 10) || 0);
+        const thinkingTokens = Math.max(0, parseInt(document.getElementById('estimateThinkingTokens').value || '0', 10) || 0);
+        const billableOutputTokens = outputTokens + thinkingTokens;
+
+        const costIn = (inputTokens / 1000000) * priceIn;
+        const costOut = (billableOutputTokens / 1000000) * priceOut;
+        const totalCost = costIn + costOut;
+        
+        document.getElementById('costValue').textContent = totalCost.toFixed(4);
+        document.getElementById('costDuration').textContent = selectedVideoDuration.toFixed(1);
+        document.getElementById('costTokensIn').textContent = Math.round(inputTokens);
+        document.getElementById('costTokensOut').textContent = Math.round(outputTokens);
+        document.getElementById('costTokensThink').textContent = Math.round(thinkingTokens);
+
+        document.getElementById('costT').textContent = selectedVideoDuration.toFixed(3);
+        document.getElementById('costFps').textContent = fps.toFixed(3);
+        document.getElementById('costFrames').textContent = frames;
+        document.getElementById('costFrames2').textContent = frames;
+        document.getElementById('costTokPerFrame').textContent = tokensPerFrame;
+        document.getElementById('costVisionTokens').textContent = visionTokens;
+        document.getElementById('costVisionTokens2').textContent = visionTokens;
+        document.getElementById('costPromptTokens').textContent = promptTokens;
+        document.getElementById('costInTokens').textContent = inputTokens;
+        document.getElementById('costInTokens2').textContent = inputTokens;
+        document.getElementById('costOutTokens').textContent = outputTokens;
+        document.getElementById('costThinkTokens').textContent = thinkingTokens;
+        document.getElementById('costBillableOutTokens').textContent = billableOutputTokens;
+        document.getElementById('costBillableOutTokens2').textContent = billableOutputTokens;
+        document.getElementById('costPriceIn').textContent = priceIn.toFixed(4);
+        document.getElementById('costPriceOut').textContent = priceOut.toFixed(4);
+        document.getElementById('costInUSD').textContent = costIn.toFixed(6);
+        document.getElementById('costOutUSD').textContent = costOut.toFixed(6);
+        document.getElementById('costTotalUSD2').textContent = totalCost.toFixed(6);
+        costDiv.style.display = 'block';
+      }
+
+      document.getElementById('btnEstimateCost').addEventListener('click', updateCost);
+      const detectVideoSelect = document.getElementById('detectVideoSelect');
+
+      detectVideoSelect.addEventListener('change', async () => {
+        selectedVideoDuration = 0;
+        costDiv.style.display = 'none';
+
+        if (!detectVideoSelect.value) return;
+
+        try {
+          const res = await authFetch('/api/video_info?path=' + encodeURIComponent(detectVideoSelect.value));
+          if (!res.ok) return;
+          const info = await res.json();
+          const d = Number(info.duration);
+          if (Number.isFinite(d) && d > 0) {
+            selectedVideoDuration = d;
+          }
+        } catch {
+          selectedVideoDuration = 0;
+        }
+      });
+      
+      async function loadVideoList() {
+        const sel = detectVideoSelect;
+        try {
+          const res = await authFetch('/api/list_videos');
+          const data = await res.json();
+          sel.innerHTML = '<option value="">请选择视频...</option>';
+          data.files.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = 'data/' + f;
+            opt.textContent = f;
+            sel.appendChild(opt);
+          });
+
+        } catch (e) {
+          sel.innerHTML = '<option>加载失败</option>';
+          console.error(e);
+        }
+      }
+
+      let detectLogCollapsed = false;
+      const detectLogPanel = document.getElementById('detectLog');
+      const detectLogToggle = document.getElementById('btnToggleDetectLog');
+      const updateDetectLogVisibility = (forceShow = false) => {
+        if (!detectLogPanel) return;
+        if (forceShow) detectLogCollapsed = false;
+        detectLogPanel.style.display = detectLogCollapsed ? 'none' : 'block';
+        if (detectLogToggle) {
+          detectLogToggle.textContent = detectLogCollapsed ? '展开日志' : '折叠日志';
+        }
+      };
+      if (detectLogToggle) {
+        detectLogToggle.addEventListener('click', () => {
+          detectLogCollapsed = !detectLogCollapsed;
+          updateDetectLogVisibility();
+        });
+      }
+
+      document.getElementById('btnStartDetect').addEventListener('click', async () => {
+        const videoPath = document.getElementById('detectVideoSelect').value;
+        const model = document.getElementById('detectModel').value;
+        const fpsRaw = parseFloat(document.getElementById('detectFps').value);
+        const fps = Number.isFinite(fpsRaw) ? fpsRaw : 1.0;
+        const log = document.getElementById('detectLog');
+        const btn = document.getElementById('btnStartDetect');
+
+        if (!videoPath) {
+          notify("请先选择视频");
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = "正在处理中 (genieview 分析 + 视觉标注)...";
+        updateDetectLogVisibility(true);
+        setLog(log, `[${new Date().toLocaleTimeString()}] 开始任务...\n视频: ${videoPath}\n模型: ${model}\nFPS: ${fps}\n`);
+        appendLog(log, `请求参数: ${JSON.stringify({ video_path: videoPath, model, fps })}\n`);
+
+        try {
+          const res = await authFetch('/api/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ video_path: videoPath, model, fps })
+          });
+          
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.details || err.error || 'Unknown error');
+          }
+
+          const data = await res.json();
+          appendLog(log, `[${new Date().toLocaleTimeString()}] 任务完成!\nJSON: ${data.json_path}\nVideo: ${data.video_path}\n`);
+          if (data.logs && typeof data.logs === 'object') {
+            const analysis = data.logs.analysis || {};
+            const annotation = data.logs.annotation || {};
+            if (analysis.command) appendLog(log, `\n[分析命令]\n${analysis.command}\n`);
+            if (analysis.stdout) appendLog(log, `[分析输出]\n${analysis.stdout}\n`);
+            if (analysis.stderr) appendLog(log, `[分析错误]\n${analysis.stderr}\n`);
+            if (annotation.command) appendLog(log, `\n[标注命令]\n${annotation.command}\n`);
+            if (annotation.stdout) appendLog(log, `[标注输出]\n${annotation.stdout}\n`);
+            if (annotation.stderr) appendLog(log, `[标注错误]\n${annotation.stderr}\n`);
+          }
+          appendLog(log, `正在跳转到结果查看页...`);
+          
+          setTimeout(() => {
+             switchTab('review');
+             // Auto load the new result
+             loadResultList().then(() => {
+                // Try to auto-select (simple logic)
+                const resultSel = document.getElementById('reviewResultSelect');
+                const videoSel = document.getElementById('reviewVideoSelect');
+                
+                const targetJsonName = data.json_path.split(/[/\\]/).pop();
+                const targetVideoName = data.video_path.split(/[/\\]/).pop();
+                
+                console.log("Auto-selecting:", targetJsonName, targetVideoName);
+
+                let jsonFound = false;
+                Array.from(resultSel.options).forEach(o => {
+                    if (o.value.includes(targetJsonName)) {
+                        resultSel.value = o.value;
+                        jsonFound = true;
+                    }
+                });
+                
+                if (jsonFound) {
+                    resultSel.dispatchEvent(new Event('change'));
+                } else {
+                    notify("未能在列表中找到结果文件: " + targetJsonName + "。请尝试手动刷新列表。");
+                }
+
+                Array.from(videoSel.options).forEach(o => {
+                    if (o.value.includes(targetVideoName)) videoSel.value = o.value;
+                });
+                videoSel.dispatchEvent(new Event('change'));
+             });
+          }, 1500);
+
+        } catch (e) {
+          appendLog(log, `[ERROR] ${e.message}\n`);
+          notify("处理失败，请查看日志");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "开始检测与标注";
+        }
+      });
+
+
+      // --- Result Review Logic ---
+      const elVideo = document.getElementById('video');
+      const elActions = document.getElementById('actionsList');
+      const elNowPlaying = document.getElementById('nowPlaying');
+      const elActionCount = document.getElementById('actionCount');
+      const elActiveAction = document.getElementById('activeAction');
+      
+      let currentActions = [];
+      let currentActionEls = [];
+      let activeIndex = -1;
+      let currentJsonPath = '';
+
+      async function loadResultList() {
+        const resSel = document.getElementById('reviewResultSelect');
+        const vidSel = document.getElementById('reviewVideoSelect');
+        try {
+          const res = await authFetch('/api/list_results');
+          const data = await res.json();
+          
+          // Save current selection if exists
+          const oldRes = resSel.value;
+          const oldVid = vidSel.value;
+
+          resSel.innerHTML = '<option value="">选择结果 JSON...</option>';
+          vidSel.innerHTML = '<option value="">选择结果视频...</option>';
+          
+          data.files.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = 'result/' + f;
+            opt.textContent = f;
+            if (f.endsWith('.json')) resSel.appendChild(opt);
+            else if (f.endsWith('.mp4')) vidSel.appendChild(opt.cloneNode(true));
+          });
+          
+          // Restore if still exists
+          if (oldRes) resSel.value = oldRes;
+          if (oldVid) vidSel.value = oldVid;
+
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      function autoSelectJsonByVideoPrefix(videoPath) {
+        const resSel = document.getElementById('reviewResultSelect');
+        if (!resSel) return;
+        if (!videoPath) return;
+
+        const videoFile = String(videoPath).split('/').pop() || '';
+        const videoBase = videoFile.replace(/\.[^.]+$/, '');
+        if (!videoBase) return;
+
+        let exactMatch = null;
+        const prefixCandidates = [];
+
+        for (const opt of Array.from(resSel.options)) {
+          const val = opt.value || '';
+          if (!val || !val.endsWith('.json')) continue;
+          const jsonFile = String(val).split('/').pop() || '';
+          const jsonBase = jsonFile.replace(/\.[^.]+$/, '');
+          if (!jsonBase) continue;
+          if (jsonBase === videoBase) {
+            exactMatch = opt;
+            break;
+          }
+          if (jsonBase.startsWith(videoBase) || videoBase.startsWith(jsonBase)) {
+            const commonLen = Math.min(jsonBase.length, videoBase.length);
+            prefixCandidates.push({ opt, commonLen, jsonBaseLen: jsonBase.length });
+          }
+        }
+
+        const best = exactMatch || prefixCandidates.sort((a, b) => {
+          if (b.commonLen !== a.commonLen) return b.commonLen - a.commonLen;
+          return b.jsonBaseLen - a.jsonBaseLen;
+        })[0]?.opt;
+
+        if (!best) {
+          resSel.value = '';
+          currentJsonPath = '';
+          notify('未找到名称前缀相同的 JSON 文件：' + videoFile);
+          return;
+        }
+
+        if (resSel.value !== best.value) {
+          resSel.value = best.value;
+          currentJsonPath = best.value;
+          resSel.dispatchEvent(new Event('change'));
+        }
+      }
+
+      document.getElementById('reviewVideoSelect').addEventListener('change', (e) => {
+        if (e.target.value) {
+          // Use absolute path for browser access
+          elVideo.src = '/' + e.target.value;
+          document.getElementById('videoName').textContent = e.target.value;
+          autoSelectJsonByVideoPrefix(e.target.value);
+        }
+      });
+
+      document.getElementById('reviewResultSelect').addEventListener('change', async (e) => {
+        if (!e.target.value) return;
+        try {
+            currentJsonPath = e.target.value;
+            const jsonUrl = '/' + e.target.value + (e.target.value.includes('?') ? '&' : '?') + 'ts=' + Date.now();
+            const res = await fetch(jsonUrl, { cache: 'no-store' });
+            if (!res.ok) throw new Error("Failed to load JSON");
+            const data = await res.json();
+
+            let actions = null;
+            let stats = null;
+            if (Array.isArray(data)) {
+              actions = data;
+            } else if (data && typeof data === 'object') {
+              if (Array.isArray(data.actions)) actions = data.actions;
+              else if (data.model_output && Array.isArray(data.model_output.actions)) actions = data.model_output.actions;
+              else if (data.output && Array.isArray(data.output.actions)) actions = data.output.actions;
+
+              stats = data.stats || (data.model_output && data.model_output.stats) || data.computed_stats || null;
+            }
+
+            if (!actions) {
+              const keys = data && typeof data === 'object' ? Object.keys(data).join(', ') : String(typeof data);
+              throw new Error("未知的 JSON 格式（缺少 actions）。keys: " + keys);
+            }
+
+            renderActions(actions);
+            renderStats(stats);
+            renderAdvice(data.advice || (data.model_output && data.model_output.advice) || null);
+            
+            // Scroll to top
+            document.getElementById('view-review').scrollTop = 0;
+        } catch (e) {
+            notify("加载 JSON 失败: " + e.message);
+        }
+      });
+      
+      function renderActions(actions) {
+        currentActions = actions;
+        elActions.innerHTML = '';
+        currentActionEls = [];
+        
+        elActionCount.textContent = actions.length;
+        
+        actions.forEach((act, idx) => {
+            const div = document.createElement('div');
+            div.className = 'action-item';
+            div.dataset.index = String(idx);
+            div.innerHTML = `
+                <div class="action-label">
+                    <strong>${act.label}</strong>
+                    <div style="font-size:10px; opacity:0.7">${act.description || ''}</div>
+                </div>
+                <div class="action-meta">
+                    <div>${act.start_time}s - ${act.end_time}s</div>
+                    <div>${Math.round((act.confidence||0)*100)}%</div>
+                </div>
+            `;
+            div.onclick = () => {
+                elVideo.currentTime = parseFloat(act.start_time);
+                elVideo.play();
+            };
+            elActions.appendChild(div);
+            currentActionEls.push(div);
+        });
+        syncActiveAction(false);
+      }
+      
+      let chartInstance = null;
+      let chartCountLabelPluginRegistered = false;
+      let currentStats = null;
+
+      function computeActionTypeStats(actions) {
+          const byLabel = new Map();
+          for (const act of actions || []) {
+              const label = (act && act.label) ? String(act.label) : '';
+              if (!label) continue;
+              const start = Number.parseFloat(act.start_time);
+              const end = Number.parseFloat(act.end_time);
+              const duration = (Number.isFinite(start) && Number.isFinite(end)) ? Math.max(0, end - start) : 0;
+
+              let item = byLabel.get(label);
+              if (!item) {
+                  item = { label, count: 0, totalDuration: 0 };
+                  byLabel.set(label, item);
+              }
+              item.count += 1;
+              item.totalDuration += duration;
+          }
+          return Array.from(byLabel.values()).map(x => ({
+              label: x.label,
+              count: x.count,
+              avgDuration: x.count > 0 ? (x.totalDuration / x.count) : 0
+          }));
+      }
+
+      const countLabelPlugin = {
+          id: 'countLabelPlugin',
+          afterDatasetsDraw(chart) {
+              const opts = (chart && chart.options && chart.options.plugins && chart.options.plugins.countLabelPlugin) || {};
+              const counts = Array.isArray(opts.counts) ? opts.counts : [];
+              const datasetIndex = Number.isFinite(opts.datasetIndex) ? opts.datasetIndex : 0;
+              const meta = chart.getDatasetMeta(datasetIndex);
+              if (!meta || !meta.data) return;
+
+              const ctx = chart.ctx;
+              ctx.save();
+              ctx.fillStyle = opts.color || 'rgba(255,255,255,0.9)';
+              ctx.font = opts.font || '12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'bottom';
+
+              meta.data.forEach((bar, idx) => {
+                  const count = counts[idx];
+                  if (count === undefined || count === null) return;
+                  const x = bar.x;
+                  const y = bar.y - 4;
+                  ctx.fillText(String(count), x, y);
+              });
+
+              ctx.restore();
+          }
+      };
+
+      function renderStats(stats) {
+          currentStats = stats || null;
+          try {
+              const canvas = document.getElementById('actionChart');
+              
+              if (!canvas) {
+                  return;
+              }
+
+              const ctx = canvas.getContext('2d');
+
+              if (!stats) {
+                  if (chartInstance) {
+                      try {
+                          chartInstance.destroy();
+                      } catch {}
+                      chartInstance = null;
+                  }
+                  ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  document.getElementById('statTotal').textContent = '-';
+                  document.getElementById('statTypes').textContent = '-';
+                  document.getElementById('statAvg').textContent = '-';
+                  return;
+              }
+
+              // Destroy old chart
+              if (chartInstance) {
+                  try {
+                      chartInstance.destroy();
+                  } catch (e) {
+                      console.error("Destroy failed", e);
+                  }
+              }
+
+              // Check Chart.js Lib
+              if (typeof Chart === 'undefined') {
+                  ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  return;
+              }
+
+              if (!chartCountLabelPluginRegistered && typeof Chart.register === 'function') {
+                  Chart.register(countLabelPlugin);
+                  chartCountLabelPluginRegistered = true;
+              }
+
+              const perType = computeActionTypeStats(currentActions);
+              const chartText = getThemeColor('--chart-text', 'rgba(255,255,255,0.92)');
+              const chartAxis = getThemeColor('--chart-axis', 'rgba(255,255,255,0.85)');
+              if (perType.length > 0) {
+                  const labels = perType.map(t => t.label);
+                  const avgDurations = perType.map(t => Number(t.avgDuration.toFixed(2)));
+                  const counts = perType.map(t => t.count);
+
+                  chartInstance = new Chart(ctx, {
+                      type: 'bar',
+                      data: {
+                          labels: labels,
+                          datasets: [{
+                              label: '平均时长 (s)',
+                              data: avgDurations,
+                              backgroundColor: 'rgba(122, 162, 255, 0.6)',
+                              borderColor: 'rgba(122, 162, 255, 1)',
+                              borderWidth: 1
+                          }]
+                      },
+                      options: {
+                          responsive: false,
+                          maintainAspectRatio: false,
+                          animation: false,
+                          plugins: {
+                              legend: {
+                                  labels: { color: chartText }
+                              },
+                              countLabelPlugin: {
+                                  counts,
+                                  datasetIndex: 0,
+                                  color: chartText
+                              }
+                          },
+                          scales: {
+                              y: {
+                                  beginAtZero: true,
+                                  ticks: { color: chartText },
+                                  title: { display: true, text: '平均时长 (s)', color: chartAxis }
+                              },
+                              x: { ticks: { color: chartText } }
+                          }
+                      }
+                  });
+              } else {
+                  ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  chartInstance = null;
+              }
+
+              // Summary Stats
+              document.getElementById('statTotal').textContent = stats.total_actions || stats.action_count || '-';
+              document.getElementById('statTypes').textContent = stats.unique_action_type_count || stats.unique_action_types || '-';
+              document.getElementById('statAvg').textContent = (stats.avg_action_duration || stats.average_duration || 0).toFixed(1) + 's';
+
+          } catch (e) {
+              console.error(e);
+          }
+       }
+
+      function renderAdvice(advice) {
+          const container = document.getElementById('adviceList');
+          if (advice && Array.isArray(advice) && advice.length > 0) {
+              container.innerHTML = advice.map(item => `
+                  <div class="advice-item">${item}</div>
+              `).join('');
+          } else {
+              container.innerHTML = '<div style="color:var(--muted)">暂无建议数据</div>';
+          }
+      }
+
+      function syncActiveAction(scrollOnChange) {
+        const t = elVideo.currentTime;
+        elNowPlaying.textContent = new Date(t * 1000).toISOString().substr(14, 5);
+
+        let found = -1;
+        for (let i = 0; i < currentActions.length; i++) {
+          const act = currentActions[i];
+          const start = parseFloat(act.start_time);
+          const end = parseFloat(act.end_time);
+          if (t >= start && t <= end) {
+            found = i;
+            break;
+          }
+        }
+
+        for (let i = 0; i < currentActionEls.length; i++) {
+          const el = currentActionEls[i];
+          if (el) el.classList.remove('active');
+        }
+
+        if (found !== -1 && currentActionEls[found]) {
+          currentActionEls[found].classList.add('active');
+          if (scrollOnChange && found !== activeIndex) {
+            currentActionEls[found].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+          elActiveAction.textContent = currentActions[found]?.label || "-";
+        } else {
+          elActiveAction.textContent = "-";
+        }
+
+        activeIndex = found;
+      }
+
+      elVideo.addEventListener('timeupdate', () => {
+        syncActiveAction(true);
+      });
+      
+      // --- Context Menu & Edit Logic ---
+      const elContextMenu = document.getElementById('contextMenu');
+      const elEditModal = document.getElementById('editModal');
+      const btnEditAction = document.getElementById('btnEditAction');
+      const btnCancelEdit = document.getElementById('btnCancelEdit');
+      const btnSaveEdit = document.getElementById('btnSaveEdit');
+      bindEnterToButton(elEditModal, btnSaveEdit);
+      
+      let editingActionIndex = -1;
+
+      function hideContextMenu() {
+        if (!elContextMenu) return;
+        elContextMenu.style.display = 'none';
+      }
+
+      function showContextMenu(x, y, index) {
+        if (!elContextMenu) return;
+        editingActionIndex = index;
+        elContextMenu.style.display = 'block';
+        elContextMenu.style.left = '0px';
+        elContextMenu.style.top = '0px';
+
+        const w = elContextMenu.offsetWidth;
+        const h = elContextMenu.offsetHeight;
+        const maxX = window.scrollX + window.innerWidth - w - 8;
+        const maxY = window.scrollY + window.innerHeight - h - 8;
+        const nextX = Math.max(window.scrollX + 8, Math.min(x, maxX));
+        const nextY = Math.max(window.scrollY + 8, Math.min(y, maxY));
+        elContextMenu.style.left = nextX + 'px';
+        elContextMenu.style.top = nextY + 'px';
+      }
+
+      if (elActions) {
+        elActions.addEventListener('contextmenu', (e) => {
+          const item = e.target.closest('.action-item');
+          if (!item) return;
+          e.preventDefault();
+          const idx = Number(item.dataset.index);
+          if (!Number.isFinite(idx)) return;
+          showContextMenu(e.pageX, e.pageY, idx);
+        });
+      }
+
+      document.addEventListener('click', (e) => {
+        if (!elContextMenu) return;
+        if (elContextMenu.style.display === 'block' && !elContextMenu.contains(e.target)) {
+          hideContextMenu();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        hideContextMenu();
+        if (elEditModal) elEditModal.classList.remove('open');
+        const notifyModal = document.getElementById('notifyModal');
+        if (notifyModal) notifyModal.classList.remove('open');
+      });
+
+      if (elContextMenu) {
+        elContextMenu.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+      }
+
+      if (btnEditAction) btnEditAction.onclick = () => {
+        if (editingActionIndex === -1) return;
+        const act = currentActions[editingActionIndex];
+        
+        hideContextMenu();
+        document.getElementById('editLabel').value = act.label || '';
+        document.getElementById('editDescription').value = act.description || '';
+        document.getElementById('editStart').value = act.start_time || 0;
+        document.getElementById('editEnd').value = act.end_time || 0;
+        
+        if (elEditModal) elEditModal.classList.add('open');
+      };
+
+      if (btnCancelEdit) btnCancelEdit.onclick = () => {
+        if (elEditModal) elEditModal.classList.remove('open');
+      };
+
+      if (btnSaveEdit) btnSaveEdit.onclick = async () => {
+        if (editingActionIndex === -1) return;
+        
+        // Update local data
+        const act = currentActions[editingActionIndex];
+        act.label = document.getElementById('editLabel').value;
+        act.description = document.getElementById('editDescription').value;
+        act.start_time = parseFloat(document.getElementById('editStart').value);
+        act.end_time = parseFloat(document.getElementById('editEnd').value);
+        
+        // Close modal
+        if (elEditModal) elEditModal.classList.remove('open');
+        
+        // Optimistic UI update
+        renderActions(currentActions);
+        
+        // Send update to server
+        const resultFile = currentJsonPath || document.getElementById('reviewResultSelect').value;
+        if (!resultFile) {
+          notify('未找到对应的 JSON 结果文件，请重新选择视频。');
+          return;
+        }
+
+        try {
+          const res = await authFetch('/api/update_result', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              json_path: resultFile,
+              actions: currentActions
+            })
+          });
+          
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Unknown error');
+          }
+          
+          const data = await res.json();
+          function extractStats(payload) {
+            if (!payload || typeof payload !== 'object') return null;
+            if (payload.stats && typeof payload.stats === 'object') return payload.stats;
+            if (payload.model_output && payload.model_output.stats) return payload.model_output.stats;
+            if (payload.output && payload.output.stats) return payload.output.stats;
+            if (payload.data) return extractStats(payload.data);
+            return null;
+          }
+          // Update stats with server response
+          const stats = extractStats(data);
+          if (stats) renderStats(stats);
+          notify('保存成功');
+          
+        } catch (e) {
+          notify('保存失败: ' + e.message);
+          console.error(e);
+        }
+      };
+
+      const themeSelect = document.getElementById('settingsTheme');
+      let storedTheme = '';
+      try {
+        storedTheme = localStorage.getItem('ui_theme') || '';
+      } catch {}
+      const initialTheme = storedTheme === 'light' ? 'light' : 'dark';
+      applyTheme(initialTheme);
+      if (themeSelect) {
+        themeSelect.value = initialTheme;
+        themeSelect.addEventListener('change', () => {
+          applyTheme(themeSelect.value);
+        });
+      }
+
+      // Initial Load
+      loadVideoList();
+      loadResultList();
+
+      // --- DEBUG: Global Canvas Test REMOVED ---
+      /*
+      setTimeout(() => {
+          ...
+      }, 1000); 
+      */
+
+    </script>
+  </body>
+</html>
