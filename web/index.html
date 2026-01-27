@@ -788,6 +788,22 @@
         }
       }
 
+      #loadingModal {
+        background: rgba(0, 0, 0, 0);
+      }
+      .loading-spinner {
+        border: 4px solid var(--surface-2);
+        border-top: 4px solid var(--accent);
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 15px auto;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
     </style>
   </head>
   <body class="login-active">
@@ -864,14 +880,16 @@
               </div>
             </div>
             
-            <div class="form-group">
+            <div class="form-group" style="display: none;">
               <label class="form-label">模型</label>
               <select id="detectModel" class="form-control">
                 <option value="gemini-1.5-flash" data-price-in="0.075" data-price-out="0.30">genieview 1.5 Flash (快速/便宜)</option>
                 <option value="gemini-1.5-pro" data-price-in="3.50" data-price-out="10.50">genieview 1.5 Pro (高精度)</option>
                 <option value="gemini-2.0-flash-exp" data-price-in="0.0" data-price-out="0.0">genieview 2.0 Flash Exp (免费预览)</option>
-                <option value="gemini-2.5-flash" data-price-in="0.30" data-price-out="1.00">genieview 2.5 Flash (高性能/平衡)</option>
+                <option value="gemini-2.5-flash" data-price-in="0.30" data-price-out="1.00" selected>genieview 2.5 Flash (高性能/平衡)</option>
                 <option value="gemini-2.5-pro" data-price-in="5.00" data-price-out="15.00">genieview 2.5 Pro (最强推理)</option>
+                <option value="gemini-3-flash" data-price-in="0.05" data-price-out="0.20">genieview 3 Flash (极速/超低成本)</option>
+                <option value="gemini-3-pro" data-price-in="4.00" data-price-out="12.00">genieview 3 Pro (下一代/最强)</option>
               </select>
             </div>
 
@@ -881,7 +899,7 @@
             </div>
 
             <!-- Cost Estimate -->
-            <button id="btnEstimateCost" class="btn" style="width: 100%; margin-bottom: 12px; background: rgba(157, 255, 179, 0.1); color: var(--accent2); border-color: rgba(157, 255, 179, 0.3);">预估费用</button>
+            <button id="btnEstimateCost" class="btn" style="width: 100%; margin-bottom: 12px; background: rgba(157, 255, 179, 0.1); color: var(--accent2); border-color: rgba(157, 255, 179, 0.3); display: none;">预估费用</button>
             <div id="costEstimate" style="margin-bottom: 16px; padding: 10px; background: rgba(122, 162, 255, 0.1); border-radius: 8px; font-size: 13px; display: none;">
                 <div style="font-weight: bold; color: var(--accent);">预估费用: $<span id="costValue">0.0000</span></div>
                 <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
@@ -919,7 +937,10 @@
         <div style="max-width: 600px; margin: 12px auto 0; width: 100%; display: flex; justify-content: flex-end;">
           <button id="btnToggleDetectLog" class="btn btn-small">折叠日志</button>
         </div>
-        <div id="detectLog" class="log-panel" style="display: none;"></div>
+        <div id="thumbnailContainer" style="display: none; margin-bottom: 10px; text-align: center;">
+            <img id="detectThumbnail" src="" alt="实时检测预览" style="max-width: 320px; max-height: 240px; border: 1px solid var(--border); border-radius: 8px;">
+          </div>
+          <div id="detectLog" class="log-panel" style="display: none;"></div>
       </div>
 
       <!-- Tab 2: Result Review -->
@@ -1020,6 +1041,7 @@
                 <tr>
                   <th>用户名</th>
                   <th>角色</th>
+                  <th>模型</th>
                   <th>邮箱</th>
                   <th>API Key</th>
                   <th>状态</th>
@@ -1096,6 +1118,18 @@
           </select>
         </div>
         <div class="modal-form-group">
+          <label>模型</label>
+          <select id="userFormModel" class="modal-input">
+            <option value="gemini-1.5-flash">genieview 1.5 Flash (快速/便宜)</option>
+            <option value="gemini-1.5-pro">genieview 1.5 Pro (高精度)</option>
+            <option value="gemini-2.0-flash-exp">genieview 2.0 Flash Exp (免费预览)</option>
+            <option value="gemini-2.5-flash" selected>genieview 2.5 Flash (高性能/平衡)</option>
+            <option value="gemini-2.5-pro">genieview 2.5 Pro (最强推理)</option>
+            <option value="gemini-3-flash">genieview 3 Flash (极速/超低成本)</option>
+            <option value="gemini-3-pro">genieview 3 Pro (下一代/最强)</option>
+          </select>
+        </div>
+        <div class="modal-form-group">
           <label>状态</label>
           <select id="userFormStatus" class="modal-input">
             <option value="active">启用</option>
@@ -1146,6 +1180,13 @@
       </div>
     </div>
 
+    </div>
+
+    <div id="loadingModal" class="modal-overlay">
+      <div class="modal-content" style="width: 300px; text-align: center; padding: 30px;">
+        <div class="loading-spinner"></div>
+        <div style="font-size: 16px; color: var(--text);">正在对视频进行检测分析，请稍等...</div>
+      </div>
     </div>
 
     <script>
@@ -1223,9 +1264,13 @@
       function updateAdminUI() {
         const navUsers = document.getElementById('navUsers');
         const viewUsers = document.getElementById('view-users');
+        const estimateBtn = document.getElementById('btnEstimateCost');
+        const costDiv = document.getElementById('costEstimate');
         const isAdmin = currentUser && currentUser.role === 'admin';
         if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
         if (viewUsers) viewUsers.style.display = isAdmin ? '' : 'none';
+        if (estimateBtn) estimateBtn.style.display = isAdmin ? 'block' : 'none';
+        if (!isAdmin && costDiv) costDiv.style.display = 'none';
         if (!isAdmin) {
           const view = document.getElementById('view-users');
           if (view && view.classList.contains('active')) {
@@ -1272,6 +1317,15 @@
             btnLogout.style.display = 'inline-block';
             currentUser = user;
             updateAdminUI();
+            
+            // Sync user model preference
+            if (currentUser.model) {
+                const detectModel = document.getElementById('detectModel');
+                if (detectModel) {
+                    detectModel.value = currentUser.model;
+                }
+            }
+
             setLoginActive(false);
             return;
           }
@@ -1323,7 +1377,33 @@
       }
 
       function appendLog(el, text) {
-        el.textContent += brandReplace(text);
+        // Try to find image data in the log text
+        // Format from server: [THUMBNAIL]base64_string[THUMBNAIL_END]
+        const thumbnailStart = '[THUMBNAIL]';
+        const thumbnailEnd = '[THUMBNAIL_END]';
+        
+        let processedText = text;
+        const startIdx = text.indexOf(thumbnailStart);
+        if (startIdx !== -1) {
+            const endIdx = text.indexOf(thumbnailEnd, startIdx);
+            if (endIdx !== -1) {
+                const base64Data = text.substring(startIdx + thumbnailStart.length, endIdx);
+                const thumbnailImg = document.getElementById('detectThumbnail');
+                const thumbnailContainer = document.getElementById('thumbnailContainer');
+                if (thumbnailImg && thumbnailContainer) {
+                    thumbnailImg.src = 'data:image/jpeg;base64,' + base64Data;
+                    thumbnailContainer.style.display = 'block';
+                }
+                // Remove the thumbnail data from the log display
+                processedText = text.substring(0, startIdx) + text.substring(endIdx + thumbnailEnd.length);
+            }
+        }
+        
+        if (processedText) {
+            el.textContent += brandReplace(processedText);
+            // Auto scroll to bottom
+            el.scrollTop = el.scrollHeight;
+        }
       }
 
       function setLog(el, text) {
@@ -1438,6 +1518,18 @@
         return role === 'admin' ? '管理员' : '普通用户';
       }
 
+      function formatModel(model) {
+        if (!model) return '-';
+        const map = {
+          'gemini-1.5-flash': 'genieview 1.5 Flash',
+          'gemini-1.5-pro': 'genieview 1.5 Pro',
+          'gemini-2.0-flash-exp': 'genieview 2.0 Flash Exp',
+          'gemini-2.5-flash': 'genieview 2.5 Flash',
+          'gemini-2.5-pro': 'genieview 2.5 Pro'
+        };
+        return map[model] || model;
+      }
+
       function formatStatus(status) {
         return status === 'inactive' ? '停用' : '启用';
       }
@@ -1482,6 +1574,7 @@
             tr.innerHTML = `
               <td>${u.username}</td>
               <td>${formatRole(u.role)}</td>
+              <td>${formatModel(u.model)}</td>
               <td>${u.email || '-'}</td>
               <td>${maskApiKey(u.api_key)}</td>
               <td><span class="${statusClass}">${formatStatus(u.status)}</span></td>
@@ -1505,9 +1598,10 @@
         const emailEl = document.getElementById('userFormEmail');
         const apiKeyEl = document.getElementById('userFormApiKey');
         const roleEl = document.getElementById('userFormRole');
+        const modelEl = document.getElementById('userFormModel');
         const statusEl = document.getElementById('userFormStatus');
         const err = document.getElementById('userFormError');
-        if (!modal || !title || !usernameEl || !passwordEl || !emailEl || !apiKeyEl || !roleEl || !statusEl || !err) return;
+        if (!modal || !title || !usernameEl || !passwordEl || !emailEl || !apiKeyEl || !roleEl || !modelEl || !statusEl || !err) return;
         err.textContent = '';
         modal.dataset.mode = mode;
         if (mode === 'edit' && user) {
@@ -1519,6 +1613,7 @@
           emailEl.value = user.email || '';
           apiKeyEl.value = user.api_key || '';
           roleEl.value = user.role || 'user';
+          modelEl.value = user.model || 'gemini-2.5-flash';
           statusEl.value = user.status || 'active';
         } else {
           title.textContent = '新增用户';
@@ -1529,6 +1624,7 @@
           emailEl.value = '';
           apiKeyEl.value = '';
           roleEl.value = 'user';
+          modelEl.value = 'gemini-2.5-flash';
           statusEl.value = 'active';
         }
         modal.classList.add('open');
@@ -1573,8 +1669,9 @@
             const emailEl = document.getElementById('userFormEmail');
             const apiKeyEl = document.getElementById('userFormApiKey');
             const roleEl = document.getElementById('userFormRole');
+            const modelEl = document.getElementById('userFormModel');
             const statusEl = document.getElementById('userFormStatus');
-            if (!modal || !err || !usernameEl || !passwordEl || !emailEl || !apiKeyEl || !roleEl || !statusEl) return;
+            if (!modal || !err || !usernameEl || !passwordEl || !emailEl || !apiKeyEl || !roleEl || !modelEl || !statusEl) return;
             err.textContent = '';
             const mode = modal.dataset.mode || 'create';
             const username = usernameEl.value.trim();
@@ -1582,6 +1679,7 @@
             const email = emailEl.value.trim();
             const apiKey = apiKeyEl.value.trim();
             const role = roleEl.value;
+            const model = modelEl.value;
             const status = statusEl.value;
             try {
               let res;
@@ -1594,6 +1692,7 @@
                     email,
                     api_key: apiKey,
                     role,
+                    model,
                     status,
                     new_password: password || ''
                   })
@@ -1608,6 +1707,7 @@
                     email,
                     api_key: apiKey,
                     role,
+                    model,
                     status
                   })
                 });
@@ -1618,6 +1718,8 @@
               }
               closeUserModal();
               await loadUserList();
+              // Refresh current user info in case we updated ourselves
+              await refreshMe();
             } catch (e) {
               err.textContent = e.message || '保存失败';
             }
@@ -1772,7 +1874,7 @@
         }
       }
 
-      let detectLogCollapsed = false;
+      let detectLogCollapsed = true;
       const detectLogPanel = document.getElementById('detectLog');
       const detectLogToggle = document.getElementById('btnToggleDetectLog');
       const updateDetectLogVisibility = (forceShow = false) => {
@@ -1783,6 +1885,9 @@
           detectLogToggle.textContent = detectLogCollapsed ? '展开日志' : '折叠日志';
         }
       };
+      // Initialize state
+      updateDetectLogVisibility();
+      
       if (detectLogToggle) {
         detectLogToggle.addEventListener('click', () => {
           detectLogCollapsed = !detectLogCollapsed;
@@ -1797,6 +1902,8 @@
         const fps = Number.isFinite(fpsRaw) ? fpsRaw : 1.0;
         const log = document.getElementById('detectLog');
         const btn = document.getElementById('btnStartDetect');
+        const thumbnailContainer = document.getElementById('thumbnailContainer');
+        const thumbnailImg = document.getElementById('detectThumbnail');
 
         if (!videoPath) {
           notify("请先选择视频");
@@ -1805,9 +1912,15 @@
 
         btn.disabled = true;
         btn.textContent = "正在处理中 (genieview 分析 + 视觉标注)...";
-        updateDetectLogVisibility(true);
+        // updateDetectLogVisibility(true); // Don't auto-expand
+        if (thumbnailContainer) thumbnailContainer.style.display = 'none';
+        if (thumbnailImg) thumbnailImg.src = '';
+        
         setLog(log, `[${new Date().toLocaleTimeString()}] 开始任务...\n视频: ${videoPath}\n模型: ${model}\nFPS: ${fps}\n`);
         appendLog(log, `请求参数: ${JSON.stringify({ video_path: videoPath, model, fps })}\n`);
+
+        const loadingModal = document.getElementById('loadingModal');
+        if (loadingModal) loadingModal.classList.add('open');
 
         try {
           const res = await authFetch('/api/analyze', {
@@ -1821,25 +1934,43 @@
             throw new Error(err.details || err.error || 'Unknown error');
           }
 
-          const data = await res.json();
-          appendLog(log, `[${new Date().toLocaleTimeString()}] 任务完成!\nJSON: ${data.json_path}\nVideo: ${data.video_path}\n`);
-          if (data.logs && typeof data.logs === 'object') {
-            const analysis = data.logs.analysis || {};
-            const annotation = data.logs.annotation || {};
-            if (analysis.command) appendLog(log, `\n[分析命令]\n${analysis.command}\n`);
-            if (analysis.stdout) appendLog(log, `[分析输出]\n${analysis.stdout}\n`);
-            if (analysis.stderr) appendLog(log, `[分析错误]\n${analysis.stderr}\n`);
-            if (annotation.command) appendLog(log, `\n[标注命令]\n${annotation.command}\n`);
-            if (annotation.stdout) appendLog(log, `[标注输出]\n${annotation.stdout}\n`);
-            if (annotation.stderr) appendLog(log, `[标注错误]\n${annotation.stderr}\n`);
+          // Use ReadableStream to process the response in real-time
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let finalData = null;
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep the last incomplete line
+
+            for (const line of lines) {
+                if (line.startsWith('DATA:')) {
+                    finalData = JSON.parse(line.substring(5));
+                } else if (line.startsWith('ERROR:')) {
+                    throw new Error(line.substring(6));
+                } else if (line.trim()) {
+                    appendLog(log, line + '\n');
+                }
+            }
           }
+
+          if (!finalData) {
+              throw new Error("未收到最终处理结果");
+          }
+
+          const data = finalData;
+          appendLog(log, `[${new Date().toLocaleTimeString()}] 任务完成!\nJSON: ${data.json_path}\nVideo: ${data.video_path}\n`);
+          
           appendLog(log, `正在跳转到结果查看页...`);
           
           setTimeout(() => {
              switchTab('review');
-             // Auto load the new result
              loadResultList().then(() => {
-                // Try to auto-select (simple logic)
                 const resultSel = document.getElementById('reviewResultSelect');
                 const videoSel = document.getElementById('reviewVideoSelect');
                 
@@ -1873,6 +2004,8 @@
           appendLog(log, `[ERROR] ${e.message}\n`);
           notify("处理失败，请查看日志");
         } finally {
+          const loadingModal = document.getElementById('loadingModal');
+          if (loadingModal) loadingModal.classList.remove('open');
           btn.disabled = false;
           btn.textContent = "开始检测与标注";
         }

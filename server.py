@@ -12,11 +12,13 @@ import hashlib
 import hmac
 import secrets
 import time
+import threading
 
 import sys
 import mysql.connector
+import random
 
-PORT = 8000
+PORT = int(os.environ.get('PORT', '8000'))
 
 import mimetypes
 import shutil
@@ -36,7 +38,7 @@ if os.path.exists(ENV_FILE):
                 key, value = line.split('=', 1)
                 os.environ[key.strip()] = value.strip()
 
-MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
+MYSQL_HOST = os.environ.get('MYSQL_HOST', '127.0.0.1')
 MYSQL_PORT = int(os.environ.get('MYSQL_PORT', '3306'))
 MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
 MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', '123456')
@@ -44,6 +46,10 @@ MYSQL_DATABASE = os.environ.get('MYSQL_DATABASE', 'geniview')
 MYSQL_CONNECT_TIMEOUT = int(os.environ.get('MYSQL_CONNECT_TIMEOUT', '5'))
 TOKEN_TTL_SECONDS = int(os.environ.get('TOKEN_TTL_SECONDS', str(8 * 60 * 60)))
 TOKENS: Dict[str, Dict[str, object]] = {}
+ANALYZE_CONCURRENCY = int(os.environ.get("ANALYZE_CONCURRENCY", "1") or "1")
+if ANALYZE_CONCURRENCY < 1:
+    ANALYZE_CONCURRENCY = 1
+ANALYZE_SEMAPHORE = threading.Semaphore(ANALYZE_CONCURRENCY)
 
 def pick_python_executable() -> str:
     env = os.environ.get("VIRTUAL_ENV")
@@ -134,6 +140,8 @@ def ensure_database() -> None:
         cursor.execute("ALTER TABLE users ADD COLUMN data_usage BIGINT NOT NULL DEFAULT 0")
     if "api_key" not in existing_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN api_key VARCHAR(255) DEFAULT NULL")
+    if "model" not in existing_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN model VARCHAR(64) DEFAULT NULL")
     cursor.execute("SELECT username FROM users WHERE username IN (%s, %s)", ("admin", "user1"))
     existing = {row[0] for row in cursor.fetchall()}
     seeds = [
@@ -357,6 +365,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             email = (data.get('email') or '').strip() or None
             status = (data.get('status') or 'active').strip() or 'active'
             api_key = (data.get('api_key') or '').strip() or None
+            model = (data.get('model') or '').strip() or None
             if not username or not password:
                 self.send_json(400, {"error": "missing_username_or_password"})
                 return
@@ -376,8 +385,8 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(409, {"error": "username_exists"})
                     return
                 cursor.execute(
-                    "INSERT INTO users (username, password_hash, role, email, status, api_key) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (username, hash_password(password), role, email, status, api_key),
+                    "INSERT INTO users (username, password_hash, role, email, status, api_key, model) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (username, hash_password(password), role, email, status, api_key, model),
                 )
                 cursor.close()
                 conn.close()
@@ -406,6 +415,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             status = data.get('status')
             new_password = data.get('new_password')
             api_key = data.get('api_key')
+            model = data.get('model')
             try:
                 conn = get_db_connection(use_database=True)
                 cursor = conn.cursor()
@@ -441,6 +451,10 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     normalized_key = str(api_key).strip()
                     sets.append("api_key=%s")
                     params.append(normalized_key or None)
+                if model is not None:
+                    normalized_model = str(model).strip() or None
+                    sets.append("model=%s")
+                    params.append(normalized_model)
                 if new_password:
                     sets.append("password_hash=%s")
                     params.append(hash_password(new_password))
@@ -614,141 +628,212 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(str(e).encode('utf-8'))
                 
         elif parsed_path.path == '/api/analyze':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
+            acquired = ANALYZE_SEMAPHORE.acquire(blocking=False)
+            if not acquired:
+                self.send_json(429, {"error": "server_busy", "details": "服务器正在处理其他检测任务，请稍后重试"})
+                return
             try:
-                data = json.loads(post_data.decode('utf-8'))
-            except Exception:
-                data = {}
-            
-            video_path = data.get('video_path')
-            model = data.get('model', 'gemini-1.5-flash')
-            fps_raw = data.get('fps', 1.0)
-            api_key = None
-            username = user.get("username") if isinstance(user, dict) else None
-            if username:
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
                 try:
-                    conn = get_db_connection(use_database=True)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT api_key FROM users WHERE username=%s", (username,))
-                    row = cursor.fetchone()
-                    cursor.close()
-                    conn.close()
-                    if row and row[0]:
-                        api_key = str(row[0]).strip() or None
-                except Exception as e:
-                    self.send_json(500, {"error": "db_error", "details": str(e)})
-                    return
+                    data = json.loads(post_data.decode('utf-8'))
+                except Exception:
+                    data = {}
+                
+                video_path = data.get('video_path')
+                model = data.get('model', 'gemini-1.5-flash')
+                fps_raw = data.get('fps', 1.0)
+                api_key = None
+                username = user.get("username") if isinstance(user, dict) else None
+                if username:
+                    try:
+                        conn = get_db_connection(use_database=True)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT api_key FROM users WHERE username=%s", (username,))
+                        row = cursor.fetchone()
+                        cursor.close()
+                        conn.close()
+                        if row and row[0]:
+                            api_key = str(row[0]).strip() or None
+                    except Exception as e:
+                        self.send_json(500, {"error": "db_error", "details": str(e)})
+                        return
 
-            try:
-                fps = float(fps_raw)
-                if fps != fps or fps < 0:
+                try:
+                    fps = float(fps_raw)
+                    if fps != fps or fps < 0:
+                        fps = 0.0
+                except Exception:
                     fps = 0.0
-            except Exception:
-                fps = 0.0
-            
-            if not video_path:
-                self.send_response(400)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': 'Missing video_path'}).encode('utf-8'))
-                return
-            if not api_key:
-                self.send_json(400, {"error": "missing_user_api_key", "details": "当前用户未配置 API Key"})
-                return
-
-            try:
-                # 1. Run main.py (Gemini Analysis)
-                timestamp = datetime.datetime.now().strftime("%d.%H.%M.%S")
-                base_name = os.path.basename(video_path).rsplit('.', 1)[0]
-                json_filename = f"{base_name}_{timestamp}.json"
-                json_path = os.path.join('result', json_filename)
                 
-                # Set environment variable if API key is provided
-                env = os.environ.copy()
-                env.pop('GOOGLE_API_KEY', None)
-                env.pop('GEMINI_API_KEY', None)
-                env['GOOGLE_API_KEY'] = api_key
-
-                python_exe = pick_python_executable()
-                
-                cmd_main = [
-                    python_exe, 'main.py',
-                    video_path,
-                    '--model', model,
-                    '--out', json_path,
-                    '--fps', str(fps)
-                ]
-                
-                print(f"Running analysis: {' '.join(cmd_main)}")
-                # Pass modified env to subprocess
-                result_main = subprocess.run(cmd_main, capture_output=True, text=True, env=env)
-                
-                if result_main.returncode != 0:
-                    self.send_response(500)
+                if not video_path:
+                    self.send_response(400)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    error_resp = {
-                        'error': 'Gemini analysis failed',
-                        'details': result_main.stderr or result_main.stdout
-                    }
-                    self.wfile.write(json.dumps(error_resp).encode('utf-8'))
+                    self.wfile.write(json.dumps({'error': 'Missing video_path'}).encode('utf-8'))
+                    return
+                if not api_key:
+                    self.send_json(400, {"error": "missing_user_api_key", "details": "当前用户未配置 API Key"})
                     return
 
-                # 2. Run handle_video.py (Annotation)
-                output_video_filename = f"{base_name}_{timestamp}.mp4"
-                output_video_path = os.path.join('result', output_video_filename)
-                
-                # We need to run handle_video.py with --no-gui to avoid blocking or UI errors
-                cmd_handle = [
-                    python_exe, 'prehandle/handle_video.py',
-                    video_path,
-                    '--out', output_video_path,
-                    '--json', json_path,
-                    '--no-gui',
-                    '--threshold', '0.5'
-                ]
-                
-                print(f"Running annotation: {' '.join(cmd_handle)}")
-                result_handle = subprocess.run(cmd_handle, capture_output=True, text=True)
-                
-                if result_handle.returncode != 0:
-                    self.send_response(500)
-                    self.send_header('Content-type', 'application/json')
+                try:
+                    timestamp = datetime.datetime.now().strftime("%d.%H.%M.%S")
+                    base_name = os.path.basename(video_path).rsplit('.', 1)[0]
+                    json_filename = f"{base_name}_{timestamp}.json"
+                    json_path = os.path.join('result', json_filename)
+                    
+                    env = os.environ.copy()
+                    env.pop('GOOGLE_API_KEY', None)
+                    env.pop('GEMINI_API_KEY', None)
+                    env['GOOGLE_API_KEY'] = api_key
+
+                    python_exe = pick_python_executable()
+                    
+                    cmd_main = [
+                        python_exe, 'main.py',
+                        video_path,
+                        '--model', model,
+                        '--out', json_path,
+                        '--fps', str(fps)
+                    ]
+                    output_video_filename = f"{base_name}_{timestamp}.mp4"
+                    output_video_path = os.path.join('result', output_video_filename)
+                    
+                    cmd_handle = [
+                        python_exe, 'prehandle/handle_video.py',
+                        video_path,
+                        '--out', output_video_path,
+                        '--json', json_path,
+                        '--no-gui',
+                        '--threshold', '0.5'
+                    ]
+                    
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/plain; charset=utf-8')
                     self.end_headers()
-                    error_resp = {
-                        'error': 'Video annotation failed',
-                        'details': result_handle.stderr or result_handle.stdout
-                    }
-                    self.wfile.write(json.dumps(error_resp).encode('utf-8'))
-                    return
-                
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                response = {
-                    'status': 'success',
-                    'json_path': json_path,
-                    'video_path': output_video_path,
-                    'logs': {
-                        'analysis': {
-                            'command': ' '.join(cmd_main),
-                            'stdout': result_main.stdout or '',
-                            'stderr': result_main.stderr or ''
-                        },
-                        'annotation': {
-                            'command': ' '.join(cmd_handle),
-                            'stdout': result_handle.stdout or '',
-                            'stderr': result_handle.stderr or ''
+                    
+                    proc_main = subprocess.Popen(
+                        cmd_main,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True,
+                        env=env
+                    )
+                    proc_handle = subprocess.Popen(
+                        cmd_handle,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
+                    )
+                    
+                    analysis_stdout = ""
+                    analysis_stderr = ""
+                    annotation_stdout = ""
+                    annotation_stderr = ""
+                    annotation_actions_ready = False
+                    
+                    import select
+                    fds = [
+                        proc_main.stdout.fileno(), proc_main.stderr.fileno(),
+                        proc_handle.stdout.fileno(), proc_handle.stderr.fileno()
+                    ]
+                    
+                    while True:
+                        ready, _, _ = select.select(fds, [], [])
+                        for fd in ready:
+                            if fd == proc_main.stdout.fileno():
+                                line = proc_main.stdout.readline()
+                                if line:
+                                    analysis_stdout += line
+                                    self.wfile.write(f"[ANALYSIS]{line}".encode('utf-8'))
+                                    self.wfile.flush()
+                            elif fd == proc_main.stderr.fileno():
+                                line = proc_main.stderr.readline()
+                                if line:
+                                    analysis_stderr += line
+                                    self.wfile.write(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
+                                    self.wfile.flush()
+                            elif fd == proc_handle.stdout.fileno():
+                                line = proc_handle.stdout.readline()
+                                if line:
+                                    annotation_stdout += line
+                                    if "[ACTIONS_READY]" in line:
+                                        annotation_actions_ready = True
+                                    self.wfile.write(line.encode('utf-8'))
+                                    self.wfile.flush()
+                            elif fd == proc_handle.stderr.fileno():
+                                line = proc_handle.stderr.readline()
+                                if line:
+                                    annotation_stderr += line
+                                    self.wfile.write(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
+                                    self.wfile.flush()
+                        if (proc_main.poll() is not None) and (proc_handle.poll() is not None):
+                            for line in proc_main.stdout or []:
+                                analysis_stdout += line
+                                self.wfile.write(f"[ANALYSIS]{line}".encode('utf-8'))
+                            for line in proc_main.stderr or []:
+                                analysis_stderr += line
+                                self.wfile.write(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
+                            for line in proc_handle.stdout or []:
+                                annotation_stdout += line
+                                if "[ACTIONS_READY]" in line:
+                                    annotation_actions_ready = True
+                                self.wfile.write(line.encode('utf-8'))
+                            for line in proc_handle.stderr or []:
+                                annotation_stderr += line
+                                self.wfile.write(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
+                            break
+                    
+                    status = 'success'
+                    error_details = None
+                    if (proc_main.returncode or 0) != 0 or (proc_handle.returncode or 0) != 0:
+                        status = 'partial'
+                        err_parts = []
+                        if (proc_main.returncode or 0) != 0:
+                            err_parts.append('Gemini analysis failed')
+                        if (proc_handle.returncode or 0) != 0:
+                            err_parts.append('Video annotation failed')
+                        error_details = '; '.join(err_parts)
+                    
+                    if (not annotation_actions_ready) and os.path.exists(json_path) and (proc_handle.returncode or 0) == 0:
+                        retry = subprocess.run(cmd_handle, capture_output=True, text=True)
+                        if retry.returncode == 0:
+                            annotation_stdout = retry.stdout or annotation_stdout
+                            annotation_stderr = retry.stderr or annotation_stderr
+                    
+                    response = {
+                        'status': status,
+                        'json_path': json_path,
+                        'video_path': output_video_path,
+                        'error': error_details,
+                        'logs': {
+                            'analysis': {
+                                'command': ' '.join(cmd_main),
+                                'stdout': analysis_stdout,
+                                'stderr': analysis_stderr
+                            },
+                            'annotation': {
+                                'command': ' '.join(cmd_handle),
+                                'stdout': annotation_stdout,
+                                'stderr': annotation_stderr
+                            }
                         }
                     }
-                }
-                self.wfile.write(json.dumps(response).encode('utf-8'))
+                    self.wfile.write(f"\nDATA:{json.dumps(response)}\n".encode('utf-8'))
 
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode('utf-8'))
+                except Exception as e:
+                    # If we already sent headers, we can only write to body
+                    # If headers not sent, we can send 500
+                    try:
+                        self.wfile.write(f"\nERROR:{str(e)}\n".encode('utf-8'))
+                    except:
+                        pass
+            finally:
+                ANALYZE_SEMAPHORE.release()
                 
         else:
             self.send_response(404)
@@ -761,7 +846,32 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 user = self.require_auth()
                 if not user:
                     return
-                self.send_json(200, {"user": {"username": user.get("username"), "role": user.get("role")}})
+                try:
+                    conn = get_db_connection(use_database=True)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT username, role, email, status, created_at, data_usage, api_key, model FROM users WHERE username = %s", (user.get("username"),))
+                    r = cursor.fetchone()
+                    cursor.close()
+                    conn.close()
+                except Exception as e:
+                     self.send_json(500, {"error": "db_error", "details": str(e)})
+                     return
+                
+                if not r:
+                    self.send_json(404, {"error": "user_not_found"})
+                    return
+
+                user_data = {
+                    "username": r[0],
+                    "role": r[1],
+                    "email": r[2],
+                    "status": r[3],
+                    "created_at": r[4].isoformat() if hasattr(r[4], "isoformat") else str(r[4]),
+                    "data_usage": int(r[5] or 0),
+                    "api_key": r[6],
+                    "model": r[7],
+                }
+                self.send_json(200, {"user": user_data})
                 return
             if parsed_path.path == '/api/users':
                 user = self.require_auth()
@@ -773,7 +883,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 try:
                     conn = get_db_connection(use_database=True)
                     cursor = conn.cursor()
-                    cursor.execute("SELECT username, role, email, status, created_at, data_usage, api_key FROM users ORDER BY id ASC")
+                    cursor.execute("SELECT username, role, email, status, created_at, data_usage, api_key, model FROM users ORDER BY id ASC")
                     rows = cursor.fetchall()
                     cursor.close()
                     conn.close()
@@ -790,6 +900,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                         "created_at": r[4].isoformat() if hasattr(r[4], "isoformat") else str(r[4]),
                         "data_usage": int(r[5] or 0),
                         "api_key": r[6],
+                        "model": r[7],
                     })
                 self.send_json(200, {"users": items})
                 return
@@ -1014,4 +1125,6 @@ if __name__ == "__main__":
     ensure_database()
     with ReusableThreadingTCPServer(("", PORT), CustomHandler) as httpd:
         print(f"Serving at port {PORT}")
+        with open('.port', 'w') as f:
+            f.write(str(PORT))
         httpd.serve_forever()
