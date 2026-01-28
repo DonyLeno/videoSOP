@@ -18,6 +18,174 @@ import sys
 import mysql.connector
 import random
 
+# Global task state
+USER_TASKS = {}
+USER_TASKS_LOCK = threading.Lock()
+
+def background_analyze_task(username, video_path, model, fps, api_key):
+    task = USER_TASKS.get(username)
+    if not task: return
+    
+    def log(msg):
+        with USER_TASKS_LOCK:
+            task['logs'].append(msg)
+            
+    try:
+        timestamp = datetime.datetime.now().strftime("%d.%H.%M.%S")
+        base_name = os.path.basename(video_path).rsplit('.', 1)[0]
+        json_filename = f"{base_name}_{timestamp}.json"
+        json_path = os.path.join('result', json_filename)
+        
+        env = os.environ.copy()
+        env.pop('GOOGLE_API_KEY', None)
+        env.pop('GEMINI_API_KEY', None)
+        env['GOOGLE_API_KEY'] = api_key
+
+        python_exe = pick_python_executable()
+        
+        cmd_main = [
+            python_exe, 'main.py',
+            video_path,
+            '--model', model,
+            '--out', json_path,
+            '--fps', str(fps)
+        ]
+        output_video_filename = f"{base_name}_{timestamp}.mp4"
+        output_video_path = os.path.join('result', output_video_filename)
+        
+        cmd_handle = [
+            python_exe, 'prehandle/handle_video.py',
+            video_path,
+            '--out', output_video_path,
+            '--json', json_path,
+            '--no-gui',
+            '--threshold', '0.5'
+        ]
+        
+        log(f"[INFO] Starting analysis for {video_path}\n".encode('utf-8'))
+        
+        proc_main = subprocess.Popen(
+            cmd_main,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=env
+        )
+        proc_handle = subprocess.Popen(
+            cmd_handle,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        analysis_stdout = ""
+        analysis_stderr = ""
+        annotation_stdout = ""
+        annotation_stderr = ""
+        annotation_actions_ready = False
+        
+        import select
+        fds = [
+            proc_main.stdout.fileno(), proc_main.stderr.fileno(),
+            proc_handle.stdout.fileno(), proc_handle.stderr.fileno()
+        ]
+        
+        while True:
+            ready, _, _ = select.select(fds, [], [])
+            for fd in ready:
+                if fd == proc_main.stdout.fileno():
+                    line = proc_main.stdout.readline()
+                    if line:
+                        analysis_stdout += line
+                        log(f"[ANALYSIS]{line}".encode('utf-8'))
+                elif fd == proc_main.stderr.fileno():
+                    line = proc_main.stderr.readline()
+                    if line:
+                        analysis_stderr += line
+                        log(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
+                elif fd == proc_handle.stdout.fileno():
+                    line = proc_handle.stdout.readline()
+                    if line:
+                        annotation_stdout += line
+                        if "[ACTIONS_READY]" in line:
+                            annotation_actions_ready = True
+                        log(line.encode('utf-8'))
+                elif fd == proc_handle.stderr.fileno():
+                    line = proc_handle.stderr.readline()
+                    if line:
+                        annotation_stderr += line
+                        log(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
+            
+            if (proc_main.poll() is not None) and (proc_handle.poll() is not None):
+                # Drain remaining output
+                for line in proc_main.stdout or []:
+                    analysis_stdout += line
+                    log(f"[ANALYSIS]{line}".encode('utf-8'))
+                for line in proc_main.stderr or []:
+                    analysis_stderr += line
+                    log(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
+                for line in proc_handle.stdout or []:
+                    annotation_stdout += line
+                    if "[ACTIONS_READY]" in line:
+                        annotation_actions_ready = True
+                    log(line.encode('utf-8'))
+                for line in proc_handle.stderr or []:
+                    annotation_stderr += line
+                    log(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
+                break
+        
+        status = 'success'
+        error_details = None
+        if (proc_main.returncode or 0) != 0 or (proc_handle.returncode or 0) != 0:
+            status = 'partial'
+            err_parts = []
+            if (proc_main.returncode or 0) != 0:
+                err_parts.append('Gemini analysis failed')
+            if (proc_handle.returncode or 0) != 0:
+                err_parts.append('Video annotation failed')
+            error_details = '; '.join(err_parts)
+        
+        if (not annotation_actions_ready) and os.path.exists(json_path) and (proc_handle.returncode or 0) == 0:
+            retry = subprocess.run(cmd_handle, capture_output=True, text=True)
+            if retry.returncode == 0:
+                annotation_stdout = retry.stdout or annotation_stdout
+                annotation_stderr = retry.stderr or annotation_stderr
+        
+        response = {
+            'status': status,
+            'json_path': json_path,
+            'video_path': output_video_path,
+            'error': error_details,
+            'logs': {
+                'analysis': {
+                    'command': ' '.join(cmd_main),
+                    'stdout': analysis_stdout,
+                    'stderr': analysis_stderr
+                },
+                'annotation': {
+                    'command': ' '.join(cmd_handle),
+                    'stdout': annotation_stdout,
+                    'stderr': annotation_stderr
+                }
+            }
+        }
+        
+        with USER_TASKS_LOCK:
+            task['result'] = response
+            task['status'] = 'completed'
+            
+    except Exception as e:
+        with USER_TASKS_LOCK:
+            task['status'] = 'error'
+            task['error_msg'] = str(e)
+            log(f"\nERROR:{str(e)}\n".encode('utf-8'))
+    finally:
+        ANALYZE_SEMAPHORE.release()
+
 PORT = int(os.environ.get('PORT', '8000'))
 
 import mimetypes
@@ -677,163 +845,36 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 try:
-                    timestamp = datetime.datetime.now().strftime("%d.%H.%M.%S")
-                    base_name = os.path.basename(video_path).rsplit('.', 1)[0]
-                    json_filename = f"{base_name}_{timestamp}.json"
-                    json_path = os.path.join('result', json_filename)
-                    
-                    env = os.environ.copy()
-                    env.pop('GOOGLE_API_KEY', None)
-                    env.pop('GEMINI_API_KEY', None)
-                    env['GOOGLE_API_KEY'] = api_key
-
-                    python_exe = pick_python_executable()
-                    
-                    cmd_main = [
-                        python_exe, 'main.py',
-                        video_path,
-                        '--model', model,
-                        '--out', json_path,
-                        '--fps', str(fps)
-                    ]
-                    output_video_filename = f"{base_name}_{timestamp}.mp4"
-                    output_video_path = os.path.join('result', output_video_filename)
-                    
-                    cmd_handle = [
-                        python_exe, 'prehandle/handle_video.py',
-                        video_path,
-                        '--out', output_video_path,
-                        '--json', json_path,
-                        '--no-gui',
-                        '--threshold', '0.5'
-                    ]
-                    
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/plain; charset=utf-8')
-                    self.end_headers()
-                    
-                    proc_main = subprocess.Popen(
-                        cmd_main,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True,
-                        env=env
-                    )
-                    proc_handle = subprocess.Popen(
-                        cmd_handle,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
-                    
-                    analysis_stdout = ""
-                    analysis_stderr = ""
-                    annotation_stdout = ""
-                    annotation_stderr = ""
-                    annotation_actions_ready = False
-                    
-                    import select
-                    fds = [
-                        proc_main.stdout.fileno(), proc_main.stderr.fileno(),
-                        proc_handle.stdout.fileno(), proc_handle.stderr.fileno()
-                    ]
-                    
-                    while True:
-                        ready, _, _ = select.select(fds, [], [])
-                        for fd in ready:
-                            if fd == proc_main.stdout.fileno():
-                                line = proc_main.stdout.readline()
-                                if line:
-                                    analysis_stdout += line
-                                    self.wfile.write(f"[ANALYSIS]{line}".encode('utf-8'))
-                                    self.wfile.flush()
-                            elif fd == proc_main.stderr.fileno():
-                                line = proc_main.stderr.readline()
-                                if line:
-                                    analysis_stderr += line
-                                    self.wfile.write(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
-                                    self.wfile.flush()
-                            elif fd == proc_handle.stdout.fileno():
-                                line = proc_handle.stdout.readline()
-                                if line:
-                                    annotation_stdout += line
-                                    if "[ACTIONS_READY]" in line:
-                                        annotation_actions_ready = True
-                                    self.wfile.write(line.encode('utf-8'))
-                                    self.wfile.flush()
-                            elif fd == proc_handle.stderr.fileno():
-                                line = proc_handle.stderr.readline()
-                                if line:
-                                    annotation_stderr += line
-                                    self.wfile.write(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
-                                    self.wfile.flush()
-                        if (proc_main.poll() is not None) and (proc_handle.poll() is not None):
-                            for line in proc_main.stdout or []:
-                                analysis_stdout += line
-                                self.wfile.write(f"[ANALYSIS]{line}".encode('utf-8'))
-                            for line in proc_main.stderr or []:
-                                analysis_stderr += line
-                                self.wfile.write(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
-                            for line in proc_handle.stdout or []:
-                                annotation_stdout += line
-                                if "[ACTIONS_READY]" in line:
-                                    annotation_actions_ready = True
-                                self.wfile.write(line.encode('utf-8'))
-                            for line in proc_handle.stderr or []:
-                                annotation_stderr += line
-                                self.wfile.write(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
-                            break
-                    
-                    status = 'success'
-                    error_details = None
-                    if (proc_main.returncode or 0) != 0 or (proc_handle.returncode or 0) != 0:
-                        status = 'partial'
-                        err_parts = []
-                        if (proc_main.returncode or 0) != 0:
-                            err_parts.append('Gemini analysis failed')
-                        if (proc_handle.returncode or 0) != 0:
-                            err_parts.append('Video annotation failed')
-                        error_details = '; '.join(err_parts)
-                    
-                    if (not annotation_actions_ready) and os.path.exists(json_path) and (proc_handle.returncode or 0) == 0:
-                        retry = subprocess.run(cmd_handle, capture_output=True, text=True)
-                        if retry.returncode == 0:
-                            annotation_stdout = retry.stdout or annotation_stdout
-                            annotation_stderr = retry.stderr or annotation_stderr
-                    
-                    response = {
-                        'status': status,
-                        'json_path': json_path,
-                        'video_path': output_video_path,
-                        'error': error_details,
-                        'logs': {
-                            'analysis': {
-                                'command': ' '.join(cmd_main),
-                                'stdout': analysis_stdout,
-                                'stderr': analysis_stderr
-                            },
-                            'annotation': {
-                                'command': ' '.join(cmd_handle),
-                                'stdout': annotation_stdout,
-                                'stderr': annotation_stderr
-                            }
+                    # Check if task already running
+                    with USER_TASKS_LOCK:
+                        if username in USER_TASKS and USER_TASKS[username]['status'] == 'running':
+                            self.send_json(409, {"error": "task_already_running", "details": "当前已有正在进行的任务，请等待其完成"})
+                            return
+                        
+                        # Initialize new task
+                        USER_TASKS[username] = {
+                            'status': 'running',
+                            'logs': [],
+                            'result': None,
+                            'error_msg': None,
+                            'created_at': time.time()
                         }
-                    }
-                    self.wfile.write(f"\nDATA:{json.dumps(response)}\n".encode('utf-8'))
+                    
+                    # Start background thread
+                    t = threading.Thread(
+                        target=background_analyze_task,
+                        args=(username, video_path, model, fps, api_key),
+                        daemon=True
+                    )
+                    t.start()
+                    
+                    self.send_json(200, {"status": "started", "message": "任务已在后台启动"})
 
                 except Exception as e:
-                    # If we already sent headers, we can only write to body
-                    # If headers not sent, we can send 500
-                    try:
-                        self.wfile.write(f"\nERROR:{str(e)}\n".encode('utf-8'))
-                    except:
-                        pass
+                    self.send_json(500, {"error": "internal_error", "details": str(e)})
             finally:
                 ANALYZE_SEMAPHORE.release()
+
                 
         else:
             self.send_response(404)
@@ -904,6 +945,38 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     })
                 self.send_json(200, {"users": items})
                 return
+            if parsed_path.path == '/api/task_status':
+                user = self.require_auth()
+                if not user:
+                    return
+                
+                username = user.get("username")
+                task = USER_TASKS.get(username)
+                
+                if not task:
+                    self.send_json(200, {"status": "none"})
+                    return
+                
+                with USER_TASKS_LOCK:
+                    # Return copy to avoid race conditions
+                    response = {
+                        "status": task.get("status", "unknown"),
+                        "logs": list(task.get("logs", [])),
+                        "result": task.get("result"),
+                        "error_msg": task.get("error_msg")
+                    }
+                    # Decode bytes logs
+                    decoded_logs = []
+                    for log in response["logs"]:
+                        if isinstance(log, bytes):
+                            decoded_logs.append(log.decode('utf-8', errors='replace'))
+                        else:
+                            decoded_logs.append(str(log))
+                    response["logs"] = decoded_logs
+                    
+                self.send_json(200, response)
+                return
+
             user = self.require_auth()
             if not user:
                 return

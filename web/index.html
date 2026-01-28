@@ -800,6 +800,30 @@
         animation: spin 1s linear infinite;
         margin: 0 auto 15px auto;
       }
+      .loading-spinner-small {
+        border: 2px solid var(--surface-2);
+        border-top: 2px solid var(--accent);
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        animation: spin 1s linear infinite;
+      }
+      .task-running-bar {
+        max-width: 600px; 
+        margin: 12px auto 0; 
+        width: 100%; 
+        padding: 10px;
+        border-radius: 8px;
+        background: var(--surface-2); 
+        border: 1px solid var(--accent);
+        color: var(--text);
+        display: none; /* Initially hidden */
+        align-items: center; 
+        justify-content: center; 
+        gap: 10px;
+        font-size: 14px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
       @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
@@ -932,6 +956,11 @@
 
             <button id="btnStartDetect" class="btn" style="width: 100%">开始检测与标注</button>
           </div>
+        </div>
+
+        <div id="taskRunningBar" class="task-running-bar">
+            <div class="loading-spinner-small"></div>
+            <div>正在对视频进行检测分析，请稍等...</div>
         </div>
 
         <div style="max-width: 600px; margin: 12px auto 0; width: 100%; display: flex; justify-content: flex-end;">
@@ -1269,7 +1298,7 @@
         const isAdmin = currentUser && currentUser.role === 'admin';
         if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
         if (viewUsers) viewUsers.style.display = isAdmin ? '' : 'none';
-        if (estimateBtn) estimateBtn.style.display = isAdmin ? 'block' : 'none';
+        if (estimateBtn) estimateBtn.style.display = 'none';
         if (!isAdmin && costDiv) costDiv.style.display = 'none';
         if (!isAdmin) {
           const view = document.getElementById('view-users');
@@ -1373,7 +1402,7 @@
           setToken('');
           await refreshMe();
         };
-        refreshMe();
+        refreshMe().then(() => pollTaskStatus());
       }
 
       function appendLog(el, text) {
@@ -1895,6 +1924,107 @@
         });
       }
 
+      let isPolling = false;
+
+      async function pollTaskStatus() {
+        if (isPolling) return;
+        
+        try {
+            const res = await authFetch('/api/task_status');
+            if (!res.ok) return;
+            const data = await res.json();
+            
+            if (data.status === 'none') return;
+            
+            const log = document.getElementById('detectLog');
+            const btn = document.getElementById('btnStartDetect');
+            const taskRunningBar = document.getElementById('taskRunningBar');
+            
+            // Update logs
+            if (log && data.logs) {
+                log.textContent = '';
+                data.logs.forEach(line => appendLog(log, line));
+            }
+            
+            if (data.status !== 'running') {
+                return;
+            }
+            
+            // Start polling loop
+            isPolling = true;
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = "正在处理中 (genieview 分析 + 视觉标注)...";
+            }
+            if (taskRunningBar) taskRunningBar.style.display = 'flex';
+            
+            while (true) {
+                await new Promise(r => setTimeout(r, 2000));
+                
+                if (!currentUser) break; 
+                
+                const pollRes = await authFetch('/api/task_status');
+                if (!pollRes.ok) break;
+                const pollData = await pollRes.json();
+                
+                if (log && pollData.logs) {
+                    log.textContent = '';
+                    pollData.logs.forEach(line => appendLog(log, line));
+                }
+                
+                if (pollData.status === 'completed') {
+                    if (pollData.result) {
+                        appendLog(log, `[${new Date().toLocaleTimeString()}] 任务完成!\nJSON: ${pollData.result.json_path}\nVideo: ${pollData.result.video_path}\n`);
+                        appendLog(log, `正在跳转到结果查看页...`);
+                        
+                        setTimeout(() => {
+                            switchTab('review');
+                            loadResultList().then(() => {
+                                const resultSel = document.getElementById('reviewResultSelect');
+                                const videoSel = document.getElementById('reviewVideoSelect');
+                                const targetJsonName = pollData.result.json_path.split(/[/\\]/).pop();
+                                const targetVideoName = pollData.result.video_path.split(/[/\\]/).pop();
+                                
+                                let jsonFound = false;
+                                Array.from(resultSel.options).forEach(o => {
+                                    if (o.value.includes(targetJsonName)) {
+                                        resultSel.value = o.value;
+                                        jsonFound = true;
+                                    }
+                                });
+                                if (jsonFound) resultSel.dispatchEvent(new Event('change'));
+                                
+                                Array.from(videoSel.options).forEach(o => {
+                                    if (o.value.includes(targetVideoName)) videoSel.value = o.value;
+                                });
+                                videoSel.dispatchEvent(new Event('change'));
+                            });
+                        }, 1500);
+                    }
+                    break;
+                } else if (pollData.status === 'failed') {
+                    appendLog(log, `[ERROR] ${pollData.error_msg || 'Unknown error'}\n`);
+                    notify("处理失败，请查看日志");
+                    break;
+                } else if (pollData.status === 'none') {
+                    break;
+                }
+            }
+            
+        } catch (e) {
+            console.error("Polling error:", e);
+        } finally {
+            isPolling = false;
+            const btn = document.getElementById('btnStartDetect');
+            const taskRunningBar = document.getElementById('taskRunningBar');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = "开始检测与标注";
+            }
+            if (taskRunningBar) taskRunningBar.style.display = 'none';
+        }
+      }
+
       document.getElementById('btnStartDetect').addEventListener('click', async () => {
         const videoPath = document.getElementById('detectVideoSelect').value;
         const model = document.getElementById('detectModel').value;
@@ -1912,15 +2042,14 @@
 
         btn.disabled = true;
         btn.textContent = "正在处理中 (genieview 分析 + 视觉标注)...";
-        // updateDetectLogVisibility(true); // Don't auto-expand
         if (thumbnailContainer) thumbnailContainer.style.display = 'none';
         if (thumbnailImg) thumbnailImg.src = '';
         
         setLog(log, `[${new Date().toLocaleTimeString()}] 开始任务...\n视频: ${videoPath}\n模型: ${model}\nFPS: ${fps}\n`);
         appendLog(log, `请求参数: ${JSON.stringify({ video_path: videoPath, model, fps })}\n`);
 
-        const loadingModal = document.getElementById('loadingModal');
-        if (loadingModal) loadingModal.classList.add('open');
+        const taskRunningBar = document.getElementById('taskRunningBar');
+        if (taskRunningBar) taskRunningBar.style.display = 'flex';
 
         try {
           const res = await authFetch('/api/analyze', {
@@ -1933,79 +2062,14 @@
             const err = await res.json();
             throw new Error(err.details || err.error || 'Unknown error');
           }
-
-          // Use ReadableStream to process the response in real-time
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let finalData = null;
-
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // Keep the last incomplete line
-
-            for (const line of lines) {
-                if (line.startsWith('DATA:')) {
-                    finalData = JSON.parse(line.substring(5));
-                } else if (line.startsWith('ERROR:')) {
-                    throw new Error(line.substring(6));
-                } else if (line.trim()) {
-                    appendLog(log, line + '\n');
-                }
-            }
-          }
-
-          if (!finalData) {
-              throw new Error("未收到最终处理结果");
-          }
-
-          const data = finalData;
-          appendLog(log, `[${new Date().toLocaleTimeString()}] 任务完成!\nJSON: ${data.json_path}\nVideo: ${data.video_path}\n`);
           
-          appendLog(log, `正在跳转到结果查看页...`);
-          
-          setTimeout(() => {
-             switchTab('review');
-             loadResultList().then(() => {
-                const resultSel = document.getElementById('reviewResultSelect');
-                const videoSel = document.getElementById('reviewVideoSelect');
-                
-                const targetJsonName = data.json_path.split(/[/\\]/).pop();
-                const targetVideoName = data.video_path.split(/[/\\]/).pop();
-                
-                console.log("Auto-selecting:", targetJsonName, targetVideoName);
-
-                let jsonFound = false;
-                Array.from(resultSel.options).forEach(o => {
-                    if (o.value.includes(targetJsonName)) {
-                        resultSel.value = o.value;
-                        jsonFound = true;
-                    }
-                });
-                
-                if (jsonFound) {
-                    resultSel.dispatchEvent(new Event('change'));
-                } else {
-                    notify("未能在列表中找到结果文件: " + targetJsonName + "。请尝试手动刷新列表。");
-                }
-
-                Array.from(videoSel.options).forEach(o => {
-                    if (o.value.includes(targetVideoName)) videoSel.value = o.value;
-                });
-                videoSel.dispatchEvent(new Event('change'));
-             });
-          }, 1500);
+          pollTaskStatus();
 
         } catch (e) {
           appendLog(log, `[ERROR] ${e.message}\n`);
-          notify("处理失败，请查看日志");
-        } finally {
-          const loadingModal = document.getElementById('loadingModal');
-          if (loadingModal) loadingModal.classList.remove('open');
+          notify("启动失败: " + e.message);
+          
+          if (taskRunningBar) taskRunningBar.style.display = 'none';
           btn.disabled = false;
           btn.textContent = "开始检测与标注";
         }
