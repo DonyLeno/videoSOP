@@ -9,14 +9,16 @@ import base64
 from PIL import Image, ImageDraw, ImageFont
 
 # Try to import MediaPipe Tasks API
-try:
-    import mediapipe as mp
-    from mediapipe.tasks import python
-    from mediapipe.tasks.python import vision
-    MP_TASKS_AVAILABLE = True
-except ImportError:
-    MP_TASKS_AVAILABLE = False
-    mp = None
+MP_TASKS_AVAILABLE = False
+mp = None
+# try:
+#     import mediapipe as mp
+#     from mediapipe.tasks import python
+#     from mediapipe.tasks.python import vision
+#     MP_TASKS_AVAILABLE = True
+# except ImportError:
+#     MP_TASKS_AVAILABLE = False
+#     mp = None
 
 # Hand connections for drawing (Standard MediaPipe Hand Connections)
 HAND_CONNECTIONS = [
