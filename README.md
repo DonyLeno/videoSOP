@@ -1,4 +1,4 @@
-# Genieview v3.0 中国版
+# Genieview v2.1 中国版
 
 一个本地 Web 界面 + Python 服务的“视频动作分析/标注”工具，集成了 Kimi (Moonshot AI) 大模型进行视频内容分析。
 
@@ -85,7 +85,7 @@ chmod +x deploy.sh
 
 ## 版本历史
 
-- **v3.0 中国版**：
+- **v2.1 中国版**：
     - 全面集成 Kimi (Moonshot AI) 模型。
     - 优化 Docker 部署流程，支持离线镜像包。
     - 改进前端进度条显示逻辑，更精准反映分析进度。

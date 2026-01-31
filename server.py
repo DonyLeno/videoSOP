@@ -22,6 +22,139 @@ import random
 USER_TASKS = {}
 USER_TASKS_LOCK = threading.Lock()
 
+def _iter_image_files(root: str) -> List[str]:
+    exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+    paths: List[str] = []
+    for dirpath, _, filenames in os.walk(root):
+        for name in filenames:
+            ext = os.path.splitext(name)[1].lower()
+            if ext in exts:
+                paths.append(os.path.join(dirpath, name))
+    paths.sort()
+    return paths
+
+def _normalize_kimi_cli_model(model: str) -> str:
+    text = str(model or "").strip()
+    lowered = text.lower()
+    if lowered in ("genieviewk2.5", "genieview-k2.5") or text == "GenieviewK2.5":
+        return "kimi-2.5"
+    return text or model
+
+
+def _extract_last_json_dict(text: str) -> Optional[Dict[str, object]]:
+    idx = text.rfind("{")
+    attempts = 0
+    while idx != -1 and attempts < 20:
+        candidate = text[idx:].strip()
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+        attempts += 1
+        idx = text.rfind("{", 0, idx)
+    return None
+
+def _extract_last_result_payload(text: str) -> Optional[Dict[str, object]]:
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    for ln in reversed(lines[-500:]):
+        if not (ln.startswith("{") and ln.endswith("}")):
+            continue
+        try:
+            parsed = json.loads(ln)
+        except Exception:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        if ("actions" in parsed) and ("model_output" in parsed or "computed_stats" in parsed):
+            return parsed
+    return None
+
+
+def _set_task_progress(username: str, phase: str, current: int, total: int) -> None:
+    with USER_TASKS_LOCK:
+        task = USER_TASKS.get(username)
+        if not task:
+            return
+        task["phase"] = phase
+        task["progress"] = {"current": int(current), "total": int(total)}
+
+def _append_task_log(username: str, message: str) -> None:
+    with USER_TASKS_LOCK:
+        task = USER_TASKS.get(username)
+        if not task:
+            return
+        task.setdefault("logs", []).append(message)
+
+def ensure_720p(video_path: str) -> None:
+    """
+    Checks if video resolution exceeds 720p (min dimension > 720).
+    If so, compresses/resizes it to 720p in-place.
+    """
+    try:
+        # 1. Probe resolution
+        cmd_probe = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0",
+            video_path
+        ]
+        # Use subprocess.run for safety
+        proc = subprocess.run(cmd_probe, capture_output=True, text=True)
+        if proc.returncode != 0:
+            print(f"[WARN] ensure_720p: probe failed for {video_path}")
+            return
+            
+        out = proc.stdout.strip()
+        parts = out.split('x')
+        if len(parts) != 2:
+            return
+        w, h = int(parts[0]), int(parts[1])
+        
+        # 2. Check if resize needed (min dimension > 720)
+        if min(w, h) <= 720:
+            return
+            
+        print(f"[INFO] Video {video_path} is {w}x{h}, resizing to 720p...")
+        
+        # 3. Construct scale filter
+        # If landscape (w >= h), scale height to 720 (scale=-2:720)
+        # If portrait (h > w), scale width to 720 (scale=720:-2)
+        # Note: -2 ensures even dimensions (required by some codecs)
+        scale_filter = "scale=-2:720" if w >= h else "scale=720:-2"
+        
+        dir_name = os.path.dirname(video_path)
+        base_name = os.path.basename(video_path)
+        name, ext = os.path.splitext(base_name)
+        compressed_path = os.path.join(dir_name, f"{name}_720p{ext}")
+        
+        cmd_ffmpeg = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", scale_filter,
+            "-c:v", "libx264", 
+            "-preset", "fast", 
+            "-crf", "23",
+            "-c:a", "copy",
+            compressed_path
+        ]
+        
+        # Run ffmpeg
+        res = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
+        if res.returncode == 0:
+            # Replace original with compressed
+            os.replace(compressed_path, video_path)
+            print(f"[INFO] Successfully resized {video_path} to 720p")
+        else:
+            print(f"[ERR] ffmpeg failed: {res.stderr}")
+            if os.path.exists(compressed_path):
+                os.remove(compressed_path)
+                
+    except Exception as e:
+        print(f"[ERR] ensure_720p exception: {e}")
+
 def background_analyze_task(username, video_path, model, fps, api_key):
     task = USER_TASKS.get(username)
     if not task: return
@@ -31,24 +164,48 @@ def background_analyze_task(username, video_path, model, fps, api_key):
             task['logs'].append(msg)
             
     try:
-        timestamp = datetime.datetime.now().strftime("%d.%H.%M.%S")
+        os.makedirs("result", exist_ok=True)
         base_name = os.path.basename(video_path).rsplit('.', 1)[0]
+        frames_dir = os.path.join('data', base_name)
+        image_paths = _iter_image_files(frames_dir)
+        total_images = len(image_paths)
+        if total_images == 0:
+            with USER_TASKS_LOCK:
+                task['status'] = 'failed'
+                task['error_msg'] = 'no_images_found'
+            return
+        if total_images > 1000:
+            with USER_TASKS_LOCK:
+                task['status'] = 'failed'
+                task['error_msg'] = "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000"
+            return
+
+
+        timestamp = datetime.datetime.now().strftime("%d.%H.%M.%S")
         json_filename = f"{base_name}_{timestamp}.json"
         json_path = os.path.join('result', json_filename)
         
         env = os.environ.copy()
         env.pop('GOOGLE_API_KEY', None)
         env.pop('GEMINI_API_KEY', None)
-        env['GOOGLE_API_KEY'] = api_key
+        env.pop('MOONSHOT_API_KEY', None)
+        
+        normalized_model = _normalize_kimi_cli_model(model)
+        if normalized_model.startswith('kimi') or normalized_model.startswith('moonshot'):
+            env['MOONSHOT_API_KEY'] = api_key
+        else:
+            env['GOOGLE_API_KEY'] = api_key
 
-        python_exe = pick_python_executable()
+        python_exe = sys.executable
         
         cmd_main = [
             python_exe, 'main.py',
             video_path,
-            '--model', model,
+            '--model', normalized_model,
             '--out', json_path,
-            '--fps', str(fps)
+            '--fps', str(fps),
+            '--frames-dir', frames_dir,
+            '--prompt-json', os.path.join('result', 'motor_12.15.00.40.json'),
         ]
         output_video_filename = f"{base_name}_{timestamp}.mp4"
         output_video_path = os.path.join('result', output_video_filename)
@@ -62,7 +219,8 @@ def background_analyze_task(username, video_path, model, fps, api_key):
             '--threshold', '0.5'
         ]
         
-        log(f"[INFO] Starting analysis for {video_path}\n".encode('utf-8'))
+        _set_task_progress(username, "analyze", 0, 0)
+        _append_task_log(username, f"[INFO] Starting analysis for {video_path}\n")
         
         proc_main = subprocess.Popen(
             cmd_main,
@@ -94,7 +252,7 @@ def background_analyze_task(username, video_path, model, fps, api_key):
             proc_handle.stdout.fileno(), proc_handle.stderr.fileno()
         ]
         
-        while True:
+        while fds:
             ready, _, _ = select.select(fds, [], [])
             for fd in ready:
                 if fd == proc_main.stdout.fileno():
@@ -102,11 +260,44 @@ def background_analyze_task(username, video_path, model, fps, api_key):
                     if line:
                         analysis_stdout += line
                         log(f"[ANALYSIS]{line}".encode('utf-8'))
+                        # Try to parse progress from JSON lines
+                        try:
+                            # line might be just a partial chunk, but readline() should give us a line
+                            # Check if line looks like a JSON object
+                            stripped = line.strip()
+                            if stripped.startswith('{') and stripped.endswith('}'):
+                                evt = json.loads(stripped)
+                                if isinstance(evt, dict):
+                                    evt_type = evt.get("event")
+                                    if evt_type == "moonshot.chat_completions.request.batch":
+                                        # When request is sent, show 1/3 progress for this batch
+                                        current_batch_start = evt.get("batch_start", 0)
+                                        batch_count = evt.get("batch_frame_count", 0)
+                                        processed = current_batch_start + int(batch_count / 3)
+                                        _set_task_progress(username, "analyze", processed, total_images)
+                                    elif evt_type == "moonshot.chat_completions.content.batch":
+                                        # When content is received, show full progress for this batch
+                                        current_batch_start = evt.get("batch_start", 0)
+                                        batch_count = evt.get("batch_frame_count", 0)
+                                        processed = current_batch_start + batch_count
+                                        _set_task_progress(username, "analyze", processed, total_images)
+                                    elif evt_type == "kimi.files.cleared":
+                                        count = evt.get("count", 0)
+                                        log(f"[INFO] 已清理 Kimi 云端历史文件: {count} 个\n".encode('utf-8'))
+                                    elif evt_type == "genai.files.upload.request":
+                                        # Google Gemini upload
+                                        pass
+                        except Exception:
+                            pass
+                    else:
+                        fds.remove(fd)
                 elif fd == proc_main.stderr.fileno():
                     line = proc_main.stderr.readline()
                     if line:
                         analysis_stderr += line
                         log(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
+                    else:
+                        fds.remove(fd)
                 elif fd == proc_handle.stdout.fileno():
                     line = proc_handle.stdout.readline()
                     if line:
@@ -114,28 +305,17 @@ def background_analyze_task(username, video_path, model, fps, api_key):
                         if "[ACTIONS_READY]" in line:
                             annotation_actions_ready = True
                         log(line.encode('utf-8'))
+                    else:
+                        fds.remove(fd)
                 elif fd == proc_handle.stderr.fileno():
                     line = proc_handle.stderr.readline()
                     if line:
                         annotation_stderr += line
                         log(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
+                    else:
+                        fds.remove(fd)
             
-            if (proc_main.poll() is not None) and (proc_handle.poll() is not None):
-                # Drain remaining output
-                for line in proc_main.stdout or []:
-                    analysis_stdout += line
-                    log(f"[ANALYSIS]{line}".encode('utf-8'))
-                for line in proc_main.stderr or []:
-                    analysis_stderr += line
-                    log(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
-                for line in proc_handle.stdout or []:
-                    annotation_stdout += line
-                    if "[ACTIONS_READY]" in line:
-                        annotation_actions_ready = True
-                    log(line.encode('utf-8'))
-                for line in proc_handle.stderr or []:
-                    annotation_stderr += line
-                    log(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
+            if not fds or ((proc_main.poll() is not None) and (proc_handle.poll() is not None)):
                 break
         
         status = 'success'
@@ -173,16 +353,46 @@ def background_analyze_task(username, video_path, model, fps, api_key):
                 }
             }
         }
+
+        if not os.path.exists(json_path):
+            recovered = _extract_last_result_payload(analysis_stdout)
+            if recovered is not None:
+                try:
+                    os.makedirs(os.path.dirname(json_path) or ".", exist_ok=True)
+                    with open(json_path, "w", encoding="utf-8") as f:
+                        json.dump(recovered, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    with USER_TASKS_LOCK:
+                        task['status'] = 'failed'
+                        task['error_msg'] = f"result_json_write_failed: {e}"
+                        task['phase'] = 'failed'
+                    return
+            else:
+                with USER_TASKS_LOCK:
+                    task['status'] = 'failed'
+                    task['error_msg'] = "result_json_not_generated"
+                    task['phase'] = 'failed'
+                return
+
+        if (proc_main.returncode or 0) != 0:
+            with USER_TASKS_LOCK:
+                task["result"] = response
+                task["status"] = "failed"
+                task["error_msg"] = error_details or "analysis_failed"
+                task["phase"] = "failed"
+            return
         
         with USER_TASKS_LOCK:
             task['result'] = response
             task['status'] = 'completed'
+            task['phase'] = 'completed'
             
     except Exception as e:
         with USER_TASKS_LOCK:
-            task['status'] = 'error'
+            task['status'] = 'failed'
             task['error_msg'] = str(e)
-            log(f"\nERROR:{str(e)}\n".encode('utf-8'))
+            task['phase'] = 'failed'
+            task['logs'].append(f"\nERROR:{str(e)}\n")
     finally:
         ANALYZE_SEMAPHORE.release()
 
@@ -368,6 +578,11 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             return None
         return user
     def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Filename, Range')
+        self.send_header('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
+        
         request_path = getattr(self, "path", None)
         if request_path:
             parsed_path = urllib.parse.urlparse(request_path)
@@ -375,6 +590,10 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             if clean_path == '/web/index.html' or clean_path.startswith('/web/'):
                 self.send_header('Cache-Control', 'no-store')
         return super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.end_headers()
 
     def do_HEAD(self):
         parsed_path = urllib.parse.urlparse(self.path)
@@ -533,7 +752,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             email = (data.get('email') or '').strip() or None
             status = (data.get('status') or 'active').strip() or 'active'
             api_key = (data.get('api_key') or '').strip() or None
-            model = (data.get('model') or '').strip() or None
+            model = 'kimi-2.5'
             if not username or not password:
                 self.send_json(400, {"error": "missing_username_or_password"})
                 return
@@ -620,9 +839,8 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     sets.append("api_key=%s")
                     params.append(normalized_key or None)
                 if model is not None:
-                    normalized_model = str(model).strip() or None
                     sets.append("model=%s")
-                    params.append(normalized_model)
+                    params.append("kimi-2.5")
                 if new_password:
                     sets.append("password_hash=%s")
                     params.append(hash_password(new_password))
@@ -760,21 +978,12 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 filename = self.headers.get('X-Filename')
                 if not filename:
-                    self.send_response(400)
-                    self.end_headers()
-                    self.wfile.write(b'Missing X-Filename header')
+                    self.send_json(400, {"error": "missing_x_filename_header"})
                     return
-
-                # Decode filename if needed (usually latin-1 in headers)
-                # But modern browsers might send UTF-8? Let's assume basic ASCII or URL encoded
                 filename = os.path.basename(filename)
-                
                 content_length = int(self.headers['Content-Length'])
-                
-                # Save to data/ directory
                 save_path = os.path.join('data', filename)
-                
-                # Read in chunks to avoid memory issues
+                os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
                 with open(save_path, 'wb') as f:
                     bytes_read = 0
                     while bytes_read < content_length:
@@ -785,21 +994,93 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                         f.write(chunk)
                         bytes_read += len(chunk)
                 
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'status': 'success', 'path': save_path}).encode('utf-8'))
-                
+                # Compress/Resize if needed
+                ensure_720p(save_path)
+
+                self.send_json(200, {"status": "success", "path": save_path})
             except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode('utf-8'))
-                
+                self.send_json(500, {"error": "upload_failed", "details": str(e)})
+        elif parsed_path.path == '/api/extract_frames':
+            user = self.require_auth()
+            if not user:
+                return
+            try:
+                content_length = int(self.headers.get('Content-Length', '0') or '0')
+                post_data = self.rfile.read(content_length)
+                try:
+                    data = json.loads(post_data.decode('utf-8')) if post_data else {}
+                except Exception:
+                    data = {}
+                video_path = str(data.get('video_path') or '').strip()
+                fps_raw = data.get('fps', 1.0)
+                try:
+                    fps = float(fps_raw)
+                    if fps <= 0:
+                        fps = 1.0
+                except Exception:
+                    fps = 1.0
+                if not video_path:
+                    self.send_json(400, {"error": "missing_video_path"})
+                    return
+                if not video_path.startswith('data/'):
+                    video_path = os.path.join('data', os.path.basename(video_path))
+                if not os.path.exists(video_path):
+                    self.send_json(404, {"error": "video_not_found", "path": video_path})
+                    return
+                try:
+                    import cv2  # type: ignore
+                except Exception:
+                    self.send_json(500, {"error": "missing_opencv"})
+                    return
+                cap = cv2.VideoCapture(video_path)
+                if not cap.isOpened():
+                    self.send_json(500, {"error": "open_video_failed", "path": video_path})
+                    return
+                video_fps = cap.get(cv2.CAP_PROP_FPS)
+                if video_fps <= 0:
+                    video_fps = fps
+                step = max(1, int(round(video_fps / fps)))
+                base_name = os.path.splitext(os.path.basename(video_path))[0] or "frames"
+                out_dir = os.path.join('data', base_name)
+                # Clean up existing frames if re-processing
+                if os.path.exists(out_dir):
+                    import shutil
+                    shutil.rmtree(out_dir)
+                os.makedirs(out_dir, exist_ok=True)
+                frame_index = 0
+                saved = 0
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    if frame_index % step == 0:
+                        h, w = frame.shape[:2]
+                        new_w = max(1, w // 2)
+                        new_h = max(1, h // 2)
+                        resized = cv2.resize(frame, (new_w, new_h))
+                        t = frame_index / video_fps if video_fps > 0 else 0.0
+                        name = f"frame_{saved + 1:05d}_{t:.2f}.jpg"
+                        cv2.imwrite(os.path.join(out_dir, name), resized, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                        saved += 1
+                    frame_index += 1
+                cap.release()
+                self.send_json(
+                    200,
+                    {
+                        "status": "success",
+                        "video_path": video_path,
+                        "frames_dir": out_dir,
+                        "frame_count": saved,
+                    },
+                )
+            except Exception as e:
+                self.send_json(500, {"error": "internal_error", "details": str(e)})
         elif parsed_path.path == '/api/analyze':
             acquired = ANALYZE_SEMAPHORE.acquire(blocking=False)
             if not acquired:
                 self.send_json(429, {"error": "server_busy", "details": "服务器正在处理其他检测任务，请稍后重试"})
                 return
+            started = False
             try:
                 content_length = int(self.headers['Content-Length'])
                 post_data = self.rfile.read(content_length)
@@ -809,7 +1090,10 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     data = {}
                 
                 video_path = data.get('video_path')
-                model = data.get('model', 'gemini-1.5-flash')
+                raw_model = data.get('model')
+                text_model = str(raw_model).strip() if raw_model is not None else ""
+                model = 'kimi-2.5'
+                
                 fps_raw = data.get('fps', 1.0)
                 api_key = None
                 username = user.get("username") if isinstance(user, dict) else None
@@ -844,6 +1128,24 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(400, {"error": "missing_user_api_key", "details": "当前用户未配置 API Key"})
                     return
 
+                base_name = os.path.basename(str(video_path)).rsplit('.', 1)[0]
+                frames_dir = os.path.join('data', base_name)
+                if not os.path.isdir(frames_dir):
+                    self.send_json(400, {"error": "missing_frames_dir", "details": "请先上传视频并完成图片拆分后再开始检测"})
+                    return
+                image_count = len(_iter_image_files(frames_dir))
+                if image_count == 0:
+                    self.send_json(400, {"error": "missing_frames", "details": "未找到拆分后的图片，请先完成图片拆分"})
+                    return
+                if image_count > 1000:
+                    self.send_json(400, {"error": "too_many_frames", "details": "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000"})
+                    return
+
+                prompt_json_path = os.path.join('result', 'motor_12.15.00.40.json')
+                if not os.path.exists(prompt_json_path):
+                    self.send_json(500, {"error": "missing_prompt_template", "details": f"未找到 prompt 模板文件: {prompt_json_path}"})
+                    return
+
                 try:
                     # Check if task already running
                     with USER_TASKS_LOCK:
@@ -857,7 +1159,10 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                             'logs': [],
                             'result': None,
                             'error_msg': None,
-                            'created_at': time.time()
+                            'created_at': time.time(),
+                            'phase': 'analyze',
+                            'progress': {"current": 0, "total": image_count},
+                            'kind': 'analyze',
                         }
                     
                     # Start background thread
@@ -869,11 +1174,16 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     t.start()
                     
                     self.send_json(200, {"status": "started", "message": "任务已在后台启动"})
+                    started = True
 
                 except Exception as e:
                     self.send_json(500, {"error": "internal_error", "details": str(e)})
+                    return
             finally:
-                ANALYZE_SEMAPHORE.release()
+                if not started:
+                    ANALYZE_SEMAPHORE.release()
+            return
+
 
                 
         else:
@@ -963,7 +1273,10 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                         "status": task.get("status", "unknown"),
                         "logs": list(task.get("logs", [])),
                         "result": task.get("result"),
-                        "error_msg": task.get("error_msg")
+                        "error_msg": task.get("error_msg"),
+                        "phase": task.get("phase"),
+                        "progress": task.get("progress"),
+                        "kind": task.get("kind"),
                     }
                     # Decode bytes logs
                     decoded_logs = []
@@ -1165,12 +1478,16 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                         self.end_headers()
                         f.seek(start)
                         remaining = length
-                        while remaining > 0:
-                            chunk = f.read(min(1024 * 1024, remaining))
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                            remaining -= len(chunk)
+                        try:
+                            while remaining > 0:
+                                chunk = f.read(min(1024 * 1024, remaining))
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                                remaining -= len(chunk)
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Client disconnected, stop sending
+                            pass
                         return
 
                     self.send_response(200)
@@ -1180,7 +1497,11 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
                     self.send_header("Cache-Control", "no-store")
                     self.end_headers()
-                    shutil.copyfileobj(f, self.wfile)
+                    try:
+                        shutil.copyfileobj(f, self.wfile)
+                    except (BrokenPipeError, ConnectionResetError):
+                        # Client disconnected, stop sending
+                        pass
                     return
                 finally:
                     f.close()

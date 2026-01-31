@@ -865,6 +865,7 @@
         <div class="nav-item" data-short="看" data-tab="review" onclick="switchTab('review')">结果查看</div>
         <div class="nav-item" data-short="管" data-tab="users" id="navUsers" onclick="switchTab('users')" style="display:none;">用户管理</div>
         <div class="nav-item" data-short="设" data-tab="settings" onclick="switchTab('settings')">设置</div>
+        <div class="nav-item" data-short="算" data-tab="calculator" id="navCalculator" onclick="switchTab('calculator')" style="display:none;">费用计算器</div>
         <div class="sidebar-user">
           <div class="sidebar-user-name" id="sidebarUser">未登录</div>
           <div style="display:flex; gap:8px;">
@@ -889,6 +890,11 @@
           <div class="panel-header">新建任务</div>
           <div class="panel-body">
             <div class="form-group">
+              <label class="form-label">FPS (每秒采样帧数)</label>
+              <input type="number" id="detectFps" class="form-control" value="1.0" step="0.1" min="0.1" max="30">
+            </div>
+
+            <div class="form-group">
               <label class="form-label">选择视频</label>
               <div style="display: flex; gap: 10px; margin-bottom: 8px;">
                   <select id="detectVideoSelect" class="form-control" style="flex: 1;">
@@ -896,30 +902,30 @@
                   </select>
               </div>
               
-              <!-- Upload Section -->
               <div style="display: flex; gap: 10px; align-items: center; border: 1px dashed var(--border); padding: 10px; border-radius: 8px;">
                 <span style="font-size: 12px; color: var(--muted); white-space: nowrap;">上传视频到 data/:</span>
                 <input type="file" id="uploadInput" accept="video/*" style="font-size: 12px; color: var(--muted); flex: 1;">
                 <button id="btnUpload" class="btn" style="padding: 4px 12px; font-size: 12px;">上传</button>
+              </div>
+              <div id="uploadProgressWrapper" style="margin-top: 8px; display: none;">
+                <div style="font-size: 11px; color: var(--muted); margin-bottom: 2px;">视频上传</div>
+                <div style="height: 6px; background: var(--border); border-radius: 4px; overflow: hidden;">
+                  <div id="uploadVideoProgressBar" style="height: 100%; width: 0%; background: var(--accent2); transition: width 0.2s;"></div>
+                </div>
+                <div id="uploadVideoProgressText" style="margin-top: 4px; font-size: 11px; color: var(--muted);"></div>
+                <div style="font-size: 11px; color: var(--muted); margin-top: 8px; margin-bottom: 2px;">视频预处理</div>
+                <div style="height: 6px; background: var(--border); border-radius: 4px; overflow: hidden;">
+                  <div id="frameProgressBar" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.2s;"></div>
+                </div>
+                <div id="frameProgressText" style="margin-top: 4px; font-size: 11px; color: var(--muted);"></div>
               </div>
             </div>
             
             <div class="form-group" style="display: none;">
               <label class="form-label">模型</label>
               <select id="detectModel" class="form-control">
-                <option value="gemini-1.5-flash" data-price-in="0.075" data-price-out="0.30">genieview 1.5 Flash (快速/便宜)</option>
-                <option value="gemini-1.5-pro" data-price-in="3.50" data-price-out="10.50">genieview 1.5 Pro (高精度)</option>
-                <option value="gemini-2.0-flash-exp" data-price-in="0.0" data-price-out="0.0">genieview 2.0 Flash Exp (免费预览)</option>
-                <option value="gemini-2.5-flash" data-price-in="0.30" data-price-out="1.00" selected>genieview 2.5 Flash (高性能/平衡)</option>
-                <option value="gemini-2.5-pro" data-price-in="5.00" data-price-out="15.00">genieview 2.5 Pro (最强推理)</option>
-                <option value="gemini-3-flash" data-price-in="0.05" data-price-out="0.20">genieview 3 Flash (极速/超低成本)</option>
-                <option value="gemini-3-pro" data-price-in="4.00" data-price-out="12.00">genieview 3 Pro (下一代/最强)</option>
+                <option value="kimi-2.5" data-price-in="0.0" data-price-out="0.0" selected>GenieviewK2.5 (长文本/视觉增强)</option>
               </select>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">FPS (每秒采样帧数)</label>
-              <input type="number" id="detectFps" class="form-control" value="1.0" step="0.1" min="0.1" max="30">
             </div>
 
             <!-- Cost Estimate -->
@@ -954,13 +960,20 @@
                 </details>
             </div>
 
+
             <button id="btnStartDetect" class="btn" style="width: 100%">开始检测与标注</button>
           </div>
         </div>
 
-        <div id="taskRunningBar" class="task-running-bar">
-            <div class="loading-spinner-small"></div>
-            <div>正在对视频进行检测分析，请稍等...</div>
+        <div id="taskRunningBar" class="task-running-bar" style="flex-direction: column; align-items: stretch; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <div class="loading-spinner-small"></div>
+                <div>正在对视频进行检测分析，请稍等...</div>
+            </div>
+            <div style="height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; width: 100%;">
+                <div id="detectionProgressBar" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.2s;"></div>
+            </div>
+            <div id="detectionProgressText" style="text-align: center; font-size: 11px; color: var(--muted);">准备中...</div>
         </div>
 
         <div style="max-width: 600px; margin: 12px auto 0; width: 100%; display: flex; justify-content: flex-end;">
@@ -1114,6 +1127,61 @@
         </div>
       </div>
 
+      <!-- Tab 4: Calculator (Admin Only) -->
+      <div id="view-calculator" class="page-view">
+        <div class="topbar">
+          <div class="topbar-left">
+            <button class="menu-button" type="button" data-menu-button>☰</button>
+            <div class="page-title">费用计算器</div>
+          </div>
+        </div>
+        <div class="panel" style="max-width: 600px; margin: 0 auto; width: 100%;">
+          <div class="panel-header">Token 费用预估</div>
+          <div class="panel-body">
+            <div class="form-group">
+                <label class="form-label">模型选择</label>
+                <select id="calcModel" class="form-control">
+                    <option value="kimi-2.5" selected>GenieviewK 2.5 - 默认</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">输入 Token 数量</label>
+                <input type="number" id="calcInputTokens" class="form-control" placeholder="0">
+            </div>
+            <div class="form-group">
+                <label class="form-label">输出 Token 数量</label>
+                <input type="number" id="calcOutputTokens" class="form-control" placeholder="0">
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button id="btnDoCalculate" class="btn" style="background: var(--accent); color: #fff;">开始计算</button>
+            </div>
+            
+            <div id="calcResult" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+                    <div style="font-size: 14px; color: var(--muted); margin-bottom: 10px;">计算公式 (GenieviewK 2.5):</div>
+                    <div style="background: var(--surface-2); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 12px; margin-bottom: 15px;">
+                        <div>Input: ¥0.004 / 1k tokens</div>
+                        <div>Output: ¥0.021 / 1k tokens</div>
+                    </div>
+                
+                <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 0;">
+                    <div class="stat-card" style="padding: 10px;">
+                        <div class="stat-title">输入费用</div>
+                        <div class="stat-value" id="resInputCost" style="font-size: 16px;">¥0.00</div>
+                    </div>
+                    <div class="stat-card" style="padding: 10px;">
+                        <div class="stat-title">输出费用</div>
+                        <div class="stat-value" id="resOutputCost" style="font-size: 16px;">¥0.00</div>
+                    </div>
+                    <div class="stat-card" style="padding: 10px; border-color: var(--accent);">
+                        <div class="stat-title" style="color: var(--accent);">总费用</div>
+                        <div class="stat-value" id="resTotalCost" style="color: var(--accent); font-size: 20px;">¥0.00</div>
+                    </div>
+                </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <div id="contextMenu" class="context-menu">
@@ -1149,13 +1217,7 @@
         <div class="modal-form-group">
           <label>模型</label>
           <select id="userFormModel" class="modal-input">
-            <option value="gemini-1.5-flash">genieview 1.5 Flash (快速/便宜)</option>
-            <option value="gemini-1.5-pro">genieview 1.5 Pro (高精度)</option>
-            <option value="gemini-2.0-flash-exp">genieview 2.0 Flash Exp (免费预览)</option>
-            <option value="gemini-2.5-flash" selected>genieview 2.5 Flash (高性能/平衡)</option>
-            <option value="gemini-2.5-pro">genieview 2.5 Pro (最强推理)</option>
-            <option value="gemini-3-flash">genieview 3 Flash (极速/超低成本)</option>
-            <option value="gemini-3-pro">genieview 3 Pro (下一代/最强)</option>
+            <option value="kimi-2.5" selected>GenieviewK2.5 (长文本/视觉增强)</option>
           </select>
         </div>
         <div class="modal-form-group">
@@ -1293,16 +1355,19 @@
       function updateAdminUI() {
         const navUsers = document.getElementById('navUsers');
         const viewUsers = document.getElementById('view-users');
+        const navCalc = document.getElementById('navCalculator');
         const estimateBtn = document.getElementById('btnEstimateCost');
         const costDiv = document.getElementById('costEstimate');
         const isAdmin = currentUser && currentUser.role === 'admin';
         if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
         if (viewUsers) viewUsers.style.display = isAdmin ? '' : 'none';
+        if (navCalc) navCalc.style.display = isAdmin ? 'block' : 'none';
         if (estimateBtn) estimateBtn.style.display = 'none';
         if (!isAdmin && costDiv) costDiv.style.display = 'none';
         if (!isAdmin) {
           const view = document.getElementById('view-users');
-          if (view && view.classList.contains('active')) {
+          const viewCalc = document.getElementById('view-calculator');
+          if ((view && view.classList.contains('active')) || (viewCalc && viewCalc.classList.contains('active'))) {
             switchTab('review');
           }
         }
@@ -1347,12 +1412,10 @@
             currentUser = user;
             updateAdminUI();
             
-            // Sync user model preference
-            if (currentUser.model) {
-                const detectModel = document.getElementById('detectModel');
-                if (detectModel) {
-                    detectModel.value = currentUser.model;
-                }
+            // Sync user model preference (force default to GenieviewK2.5 if empty)
+            const detectModel = document.getElementById('detectModel');
+            if (detectModel) {
+                detectModel.value = currentUser.model || 'kimi-2.5';
             }
 
             setLoginActive(false);
@@ -1405,7 +1468,7 @@
         refreshMe().then(() => pollTaskStatus());
       }
 
-      function appendLog(el, text) {
+      function appendLog(container, text) {
         // Try to find image data in the log text
         // Format from server: [THUMBNAIL]base64_string[THUMBNAIL_END]
         const thumbnailStart = '[THUMBNAIL]';
@@ -1429,9 +1492,7 @@
         }
         
         if (processedText) {
-            el.textContent += brandReplace(processedText);
-            // Auto scroll to bottom
-            el.scrollTop = el.scrollHeight;
+            container.appendChild(document.createTextNode(brandReplace(processedText)));
         }
       }
 
@@ -1550,11 +1611,7 @@
       function formatModel(model) {
         if (!model) return '-';
         const map = {
-          'gemini-1.5-flash': 'genieview 1.5 Flash',
-          'gemini-1.5-pro': 'genieview 1.5 Pro',
-          'gemini-2.0-flash-exp': 'genieview 2.0 Flash Exp',
-          'gemini-2.5-flash': 'genieview 2.5 Flash',
-          'gemini-2.5-pro': 'genieview 2.5 Pro'
+          'kimi-2.5': 'GenieviewK2.5'
         };
         return map[model] || model;
       }
@@ -1577,6 +1634,47 @@
         return `${head}******`;
       }
 
+      function uploadVideoWithProgress(file, barEl, textEl) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/upload', true);
+          const token = getToken();
+          if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+          xhr.setRequestHeader('X-Filename', file.name);
+          xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable && barEl) {
+              const pct = Math.round((e.loaded / e.total) * 100);
+              barEl.style.width = pct + '%';
+            }
+            if (textEl) textEl.textContent = '正在上传视频...';
+          };
+          xhr.onerror = function () {
+            reject(new Error('网络错误'));
+          };
+          xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4) {
+              if (xhr.status === 200) {
+                try {
+                  const data = JSON.parse(xhr.responseText || '{}');
+                  if (barEl) barEl.style.width = '100%';
+                  resolve(data);
+                } catch (err) {
+                  reject(err);
+                }
+              } else if (xhr.status === 401) {
+                setToken('');
+                setLoginActive(true);
+                reject(new Error('未登录或登录已过期'));
+              } else {
+                reject(new Error('HTTP ' + xhr.status));
+              }
+            }
+          };
+          xhr.send(file);
+        });
+      }
+      
       async function loadUserList() {
         if (!currentUser || currentUser.role !== 'admin') return;
         const body = document.getElementById('userTableBody');
@@ -1642,7 +1740,7 @@
           emailEl.value = user.email || '';
           apiKeyEl.value = user.api_key || '';
           roleEl.value = user.role || 'user';
-          modelEl.value = user.model || 'gemini-2.5-flash';
+          modelEl.value = user.model || 'kimi-2.5';
           statusEl.value = user.status || 'active';
         } else {
           title.textContent = '新增用户';
@@ -1653,7 +1751,7 @@
           emailEl.value = '';
           apiKeyEl.value = '';
           roleEl.value = 'user';
-          modelEl.value = 'gemini-2.5-flash';
+          modelEl.value = 'kimi-2.5';
           statusEl.value = 'active';
         }
         modal.classList.add('open');
@@ -1759,6 +1857,8 @@
       // Upload Logic
       const btnUpload = document.getElementById('btnUpload');
       const uploadInput = document.getElementById('uploadInput');
+
+
       
       btnUpload.addEventListener('click', async () => {
         const file = uploadInput.files[0];
@@ -1766,26 +1866,76 @@
             notify("请先选择文件");
             return;
         }
-        
+        const fpsRaw = parseFloat(document.getElementById('detectFps').value);
+        const fps = Number.isFinite(fpsRaw) && fpsRaw > 0 ? fpsRaw : 1.0;
+        const progressWrapper = document.getElementById('uploadProgressWrapper');
+        const uploadBar = document.getElementById('uploadVideoProgressBar');
+        const uploadText = document.getElementById('uploadVideoProgressText');
+        const frameBar = document.getElementById('frameProgressBar');
+        const frameText = document.getElementById('frameProgressText');
+
+        if (progressWrapper) {
+            progressWrapper.style.display = 'block';
+            if (uploadBar) uploadBar.style.width = '0%';
+            if (uploadText) uploadText.textContent = '正在上传视频...';
+            if (frameBar) frameBar.style.width = '0%';
+            if (frameText) frameText.textContent = '';
+        }
+
+        let frameTimer = null;
+        let frameProgress = 0;
         btnUpload.disabled = true;
         btnUpload.textContent = "上传中...";
         
         try {
-            // Use raw body upload with filename header
-            const res = await authFetch('/api/upload', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/octet-stream',
-                    'X-Filename': file.name
-                },
-                body: file
-            });
-            const data = await res.json();
-            
+            // Upload
+            const data = await uploadVideoWithProgress(file, uploadBar, uploadText);
+
             if (data.status === 'success') {
+                // Extract frames
+                if (frameText) frameText.textContent = '正在预处理视频...';
+                if (frameBar) {
+                    frameProgress = 0;
+                    frameBar.style.width = '0%';
+                    frameTimer = setInterval(() => {
+                        if (frameProgress < 90) {
+                            frameProgress += 5;
+                            frameBar.style.width = frameProgress + '%';
+                        }
+                    }, 300);
+                }
+                
+                const res2 = await authFetch('/api/extract_frames', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ video_path: data.path, fps })
+                });
+                
+                let data2;
+                try {
+                    data2 = await res2.json();
+                } finally {
+                    if (frameTimer) {
+                        clearInterval(frameTimer);
+                        frameTimer = null;
+                    }
+                }
+                
+                if (!res2.ok || data2.status !== 'success') {
+                    const msg = (data2 && (data2.error || data2.details)) || '截取图片失败';
+                    throw new Error(msg);
+                }
+                
+                if (frameBar) {
+                    frameBar.style.width = '100%';
+                }
+                if (frameText) {
+                    const count = typeof data2.frame_count === 'number' ? data2.frame_count : 0;
+                    frameText.textContent = '视频预处理完成，共 ' + count + ' 帧';
+                }
+
                 notify("上传成功!");
                 await loadVideoList();
-                // Auto select the new file
                 const sel = document.getElementById('detectVideoSelect');
                 sel.value = data.path;
                 sel.dispatchEvent(new Event('change'));
@@ -1798,6 +1948,21 @@
             btnUpload.disabled = false;
             btnUpload.textContent = "上传";
             uploadInput.value = '';
+            if (progressWrapper) {
+                progressWrapper.style.display = 'none';
+            }
+            if (uploadBar) {
+                uploadBar.style.width = '0%';
+            }
+            if (uploadText) {
+                uploadText.textContent = '';
+            }
+            if (frameBar) {
+                frameBar.style.width = '0%';
+            }
+            if (frameText) {
+                frameText.textContent = '';
+            }
         }
       });
 
@@ -1926,6 +2091,8 @@
 
       let isPolling = false;
 
+      let renderedLogCount = 0;
+
       async function pollTaskStatus() {
         if (isPolling) return;
         
@@ -1934,16 +2101,39 @@
             if (!res.ok) return;
             const data = await res.json();
             
-            if (data.status === 'none') return;
+            if (data.status === 'none') {
+                renderedLogCount = 0;
+                return;
+            }
             
             const log = document.getElementById('detectLog');
             const btn = document.getElementById('btnStartDetect');
             const taskRunningBar = document.getElementById('taskRunningBar');
             
-            // Update logs
+            // Update logs efficiently
             if (log && data.logs) {
-                log.textContent = '';
-                data.logs.forEach(line => appendLog(log, line));
+                // If logs array is smaller than rendered count, it means a new task started or logs were cleared
+                if (data.logs.length < renderedLogCount) {
+                    log.textContent = '';
+                    renderedLogCount = 0;
+                }
+
+                if (data.logs.length > renderedLogCount) {
+                    const fragment = document.createDocumentFragment();
+                    const newLogs = data.logs.slice(renderedLogCount);
+                    
+                    newLogs.forEach(line => {
+                        appendLog(fragment, line);
+                    });
+                    
+                    log.appendChild(fragment);
+                    renderedLogCount = data.logs.length;
+                    
+                    // Limit total log size to prevent memory issues (keep last 20000 characters approx)
+                    // or just rely on the browser handling text nodes better than innerHTML
+                    // For now, auto-scroll only if we added content
+                    log.scrollTop = log.scrollHeight;
+                }
             }
             
             if (data.status !== 'running') {
@@ -1958,6 +2148,26 @@
             }
             if (taskRunningBar) taskRunningBar.style.display = 'flex';
             
+            // Helper to update progress UI
+            const updateProgressUI = (taskData) => {
+                const pBar = document.getElementById('detectionProgressBar');
+                const pText = document.getElementById('detectionProgressText');
+                if (taskData.progress && pBar && pText) {
+                    const { current, total } = taskData.progress;
+                    if (total > 0) {
+                        const pct = Math.min(100, Math.max(0, (current / total) * 100)).toFixed(1);
+                        pBar.style.width = pct + '%';
+                        pText.textContent = `正在检测: ${current} / ${total} 帧 (${pct}%)`;
+                    } else {
+                        pBar.style.width = '0%';
+                        pText.textContent = '准备中...';
+                    }
+                }
+            };
+            
+            // Initial update
+            updateProgressUI(data);
+            
             while (true) {
                 await new Promise(r => setTimeout(r, 2000));
                 
@@ -1967,15 +2177,29 @@
                 if (!pollRes.ok) break;
                 const pollData = await pollRes.json();
                 
+                updateProgressUI(pollData);
+
                 if (log && pollData.logs) {
-                    log.textContent = '';
-                    pollData.logs.forEach(line => appendLog(log, line));
+                    if (pollData.logs.length < renderedLogCount) {
+                        log.textContent = '';
+                        renderedLogCount = 0;
+                    }
+                    
+                    if (pollData.logs.length > renderedLogCount) {
+                        const fragment = document.createDocumentFragment();
+                        const newLogs = pollData.logs.slice(renderedLogCount);
+                        newLogs.forEach(line => appendLog(fragment, line));
+                        log.appendChild(fragment);
+                        renderedLogCount = pollData.logs.length;
+                        log.scrollTop = log.scrollHeight;
+                    }
                 }
                 
                 if (pollData.status === 'completed') {
                     if (pollData.result) {
                         appendLog(log, `[${new Date().toLocaleTimeString()}] 任务完成!\nJSON: ${pollData.result.json_path}\nVideo: ${pollData.result.video_path}\n`);
                         appendLog(log, `正在跳转到结果查看页...`);
+                        log.scrollTop = log.scrollHeight;
                         
                         setTimeout(() => {
                             switchTab('review');
@@ -2004,6 +2228,7 @@
                     break;
                 } else if (pollData.status === 'failed') {
                     appendLog(log, `[ERROR] ${pollData.error_msg || 'Unknown error'}\n`);
+                    log.scrollTop = log.scrollHeight;
                     notify("处理失败，请查看日志");
                     break;
                 } else if (pollData.status === 'none') {
@@ -2046,7 +2271,11 @@
         if (thumbnailImg) thumbnailImg.src = '';
         
         setLog(log, `[${new Date().toLocaleTimeString()}] 开始任务...\n视频: ${videoPath}\n模型: ${model}\nFPS: ${fps}\n`);
+        renderedLogCount = 0;
+        log.scrollTop = log.scrollHeight;
+        
         appendLog(log, `请求参数: ${JSON.stringify({ video_path: videoPath, model, fps })}\n`);
+        log.scrollTop = log.scrollHeight;
 
         const taskRunningBar = document.getElementById('taskRunningBar');
         if (taskRunningBar) taskRunningBar.style.display = 'flex';
@@ -2067,6 +2296,7 @@
 
         } catch (e) {
           appendLog(log, `[ERROR] ${e.message}\n`);
+          log.scrollTop = log.scrollHeight;
           notify("启动失败: " + e.message);
           
           if (taskRunningBar) taskRunningBar.style.display = 'none';
@@ -2615,6 +2845,32 @@
       }, 1000); 
       */
 
+      // Calculator Logic
+      document.addEventListener('DOMContentLoaded', () => {
+          const btnCalc = document.getElementById('btnDoCalculate');
+          if (btnCalc) {
+              btnCalc.addEventListener('click', () => {
+                  const inputTokens = parseFloat(document.getElementById('calcInputTokens').value) || 0;
+                  const outputTokens = parseFloat(document.getElementById('calcOutputTokens').value) || 0;
+                  
+                  // Pricing for GenieviewK 2.5 (Moonshot K2.5):
+                  // Input: ¥4 / 1M = ¥0.004 / 1k
+                  // Output: ¥21 / 1M = ¥0.021 / 1k
+                  const inputPricePer1k = 0.004;
+                  const outputPricePer1k = 0.021;
+                  
+                  const inputCost = (inputTokens / 1000) * inputPricePer1k;
+                  const outputCost = (outputTokens / 1000) * outputPricePer1k;
+                  const totalCost = inputCost + outputCost;
+                  
+                  document.getElementById('resInputCost').textContent = '¥' + inputCost.toFixed(4);
+                  document.getElementById('resOutputCost').textContent = '¥' + outputCost.toFixed(4);
+                  document.getElementById('resTotalCost').textContent = '¥' + totalCost.toFixed(4);
+                  
+                  document.getElementById('calcResult').style.display = 'block';
+              });
+          }
+      });
     </script>
   </body>
 </html>
