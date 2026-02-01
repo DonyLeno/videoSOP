@@ -977,6 +977,9 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
         elif parsed_path.path == '/api/upload':
             try:
                 filename = self.headers.get('X-Filename')
+                if filename:
+                    filename = urllib.parse.unquote(filename)
+                
                 if not filename:
                     self.send_json(400, {"error": "missing_x_filename_header"})
                     return
