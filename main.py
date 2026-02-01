@@ -63,6 +63,73 @@ def _contents_summary(contents: List[Any]) -> Dict[str, Any]:
     return summary
 
 
+def _extract_section(content: str, section_header: str) -> str:
+    pattern = re.escape(section_header) + r"(.*?)(?=\n##|\Z)"
+    match = re.search(pattern, content, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def _parse_table(table_text: str) -> Tuple[Optional[str], Optional[str], List[str]]:
+    lines = table_text.strip().split('\n')
+    lines = [line.strip() for line in lines if line.strip()]
+    if not lines:
+        return None, None, []
+    table_lines = [line for line in lines if line.startswith('|')]
+    if len(table_lines) < 2:
+        return None, None, []
+    return table_lines[0], table_lines[1], table_lines[2:]
+
+
+def _clean_section_content(content: str) -> str:
+    """
+    Removes leading/trailing whitespace and `---` separators.
+    """
+    content = content.strip()
+    # Remove trailing --- if present
+    if content.endswith("---"):
+        content = content[:-3].strip()
+    # Remove leading --- if present
+    if content.startswith("---"):
+        content = content[3:].strip()
+    return content
+
+
+def _parse_deep_dive_section(content: str) -> Dict[str, List[str]]:
+    """
+    Parses the Deep Dive Findings section into categories.
+    """
+    findings: Dict[str, List[str]] = {
+        "Stability": [],
+        "Ergonomics": [],
+        "Cognitive Load": [],
+        "Material/Environment": []
+    }
+    
+    # Split content by lines starting with * **
+    # Pattern: ^\* \*\*(.*?)\:\*\*(.*?)(?=(?:^\*\s+\*\*)|$)
+    # Note: Using re.MULTILINE to match start of lines
+    
+    matches = re.finditer(r"(?m)^\*\s+\*\*(.*?)\:\*\*(.*?)(?=(?:^\*\s+\*\*)|$)", content, re.DOTALL)
+    
+    for match in matches:
+        header = match.group(1).strip() # e.g. "稳定性 (Stability)"
+        body = match.group(2).strip()
+        
+        # Determine category
+        if "Stability" in header or "稳定性" in header:
+            findings["Stability"].append(body)
+        elif "Ergonomics" in header or "人机工程" in header:
+            findings["Ergonomics"].append(body)
+        elif "Cognitive" in header or "认知" in header:
+            findings["Cognitive Load"].append(body)
+        elif "Material" in header or "Environment" in header or "物料" in header or "环境" in header:
+            findings["Material/Environment"].append(body)
+            
+    return findings
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None:
@@ -240,22 +307,29 @@ def build_prompt(use_frames: bool = False) -> str:
     )
 
 
-def load_prompt_from_json(path: str) -> Optional[str]:
+def load_prompt_from_file(path: str) -> Optional[str]:
     raw = str(path or "").strip()
-    if not raw:
+    if not raw or not os.path.exists(raw):
         return None
     try:
         with open(raw, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            content = f.read().strip()
+            
+        # Try to parse as JSON first
+        if content.startswith("{"):
+            try:
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    prompt = data.get("prompt")
+                    if isinstance(prompt, str):
+                        return prompt.strip() or None
+            except json.JSONDecodeError:
+                pass
+                
+        # If not JSON or no prompt field, return raw content
+        return content or None
     except Exception:
         return None
-    if not isinstance(data, dict):
-        return None
-    prompt = data.get("prompt")
-    if not isinstance(prompt, str):
-        return None
-    prompt = prompt.strip()
-    return prompt or None
 
 
 def build_response_json_schema() -> Dict[str, Any]:
@@ -536,6 +610,7 @@ def analyze_video_openai(
     sample_fps: float = 0.0,
     frames_dir: Optional[str] = None,
     prompt_override: Optional[str] = None,
+    output_stem: Optional[str] = None,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> Tuple[Dict[str, Any], List[DetectedAction]]:
     if not openai:
@@ -683,7 +758,13 @@ def analyze_video_openai(
         total_tokens_total: Optional[int] = 0
 
         all_actions: List[DetectedAction] = []
-        batch_size = _env_int("KIMI_BATCH_FRAMES", 60)
+        batch_size = 60 # User requested batch size 60
+        
+        # Create result directory for this video
+        video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
+        result_dir = os.path.join("result", video_name)
+        os.makedirs(result_dir, exist_ok=True)
+
         idx = 0
         batch_index = 0
         while idx < len(frames):
@@ -725,6 +806,12 @@ def analyze_video_openai(
                         timeout=300.0,
                     )
                     content = response.choices[0].message.content or "{}"
+
+                    # Save batch result to MD file
+                    batch_md_path = os.path.join(result_dir, f"batch_{batch_index}.md")
+                    with open(batch_md_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+
                     print(
                         json.dumps(
                             {
@@ -758,14 +845,15 @@ def analyze_video_openai(
                             if total_tokens_total is None
                             else int(total_tokens_total) + int(getattr(usage, "total_tokens", 0) or 0)
                         )
-                    data = _extract_json_content(content)
-                    model_output: ModelOutput = {}
-                    if isinstance(data, dict):
-                        model_output = data  # type: ignore[assignment]
-                    elif isinstance(data, list):
-                        model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
-                    batch_actions = parse_actions(model_output.get("actions"))
-                    all_actions.extend(batch_actions)
+                    if not prompt_override:
+                        data = _extract_json_content(content)
+                        model_output: ModelOutput = {}
+                        if isinstance(data, dict):
+                            model_output = data  # type: ignore[assignment]
+                        elif isinstance(data, list):
+                            model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
+                        batch_actions = parse_actions(model_output.get("actions"))
+                        all_actions.extend(batch_actions)
                     break
                 except Exception as e:
                     msg = str(e).lower()
@@ -787,11 +875,183 @@ def analyze_video_openai(
                     raise
             idx += current_size
 
+        # Manual Merge Strategy
+        print("Starting manual merge of batch files...", flush=True)
+        merged_overview = []
+        all_cts = []
+        all_uphs = []
+        merged_rows = []
+        # Structure for Deep Dive Findings
+        merged_findings = {
+            "Stability": [],
+            "Ergonomics": [],
+            "Cognitive Load": [],
+            "Material/Environment": []
+        }
+        merged_kaizen = []
+        
+        table_header = None
+        table_separator = None
+        current_row_index = 1
+        kaizen_issue_index = 1
+        
+        # Determine title from first batch
+        title_section = "# AutoIE Analysis Result"
+        first_batch_path = os.path.join(result_dir, "batch_1.md")
+        if os.path.exists(first_batch_path):
+            with open(first_batch_path, 'r', encoding='utf-8') as f:
+                first_content = f.read()
+            # Extract title/preamble (everything before the first ## section)
+            # But be careful if the file starts immediately with ##
+            if first_content.strip().startswith("##"):
+                title_section = "# AutoIE Analysis Result"
+            else:
+                title_match = re.search(r"^(.*?)(?=\n## )", first_content, re.DOTALL)
+                if title_match:
+                    title_section = title_match.group(1).strip()
+
+        for i in range(1, batch_index + 1):
+            b_path = os.path.join(result_dir, f"batch_{i}.md")
+            if not os.path.exists(b_path):
+                continue
+            
+            with open(b_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # 1. 工序概览
+            overview = _extract_section(content, "## 1. 工序概览")
+            if overview:
+                cln_ov = _clean_section_content(overview)
+                merged_overview.append(cln_ov)
+                # Extract CT
+                m_ct = re.search(r"\* \*\*预估节拍 \(CT\):\*\*.*?(\d+(?:\.\d+)?)", cln_ov)
+                if m_ct:
+                    try:
+                        all_cts.append(float(m_ct.group(1)))
+                    except:
+                        pass
+                # Extract UPH
+                m_uph = re.search(r"\* \*\*理论产能 \(UPH\):\*\*.*?(\d+)", cln_ov)
+                if m_uph:
+                    try:
+                        all_uphs.append(float(m_uph.group(1)))
+                    except:
+                        pass
+            
+            # 2. 详细动作分析表
+            motion = _extract_section(content, "## 2. 详细动作分析表 (Motion Breakdown)")
+            if motion:
+                motion = _clean_section_content(motion)
+                header, separator, rows = _parse_table(motion)
+                if header and separator:
+                    if table_header is None:
+                        table_header = header
+                        table_separator = separator
+                    
+                    for row in rows:
+                        # Re-index: replace first number between pipes with current_row_index
+                        row = re.sub(r"^\|\s*\d+\s*\|", f"| {current_row_index} |", row)
+                        merged_rows.append(row)
+                        current_row_index += 1
+            
+            # 3. 深度诊断发现
+            findings_text = _extract_section(content, "## 3. 深度诊断发现 (Deep Dive Findings)")
+            if findings_text:
+                findings_text = _clean_section_content(findings_text)
+                parsed_findings = _parse_deep_dive_section(findings_text)
+                for cat, items in parsed_findings.items():
+                    merged_findings[cat].extend(items)
+                
+            # 4. 改善机会
+            kaizen = _extract_section(content, "## 4. 改善机会 (Kaizen Opportunities)")
+            if kaizen:
+                kaizen_text = _clean_section_content(kaizen)
+                def _repl_kaizen(m):
+                    nonlocal kaizen_issue_index
+                    res = f"* **问题点 {kaizen_issue_index}:"
+                    kaizen_issue_index += 1
+                    return res
+                kaizen_text = re.sub(r"\* \*\*问题点 \d+:", _repl_kaizen, kaizen_text)
+                merged_kaizen.append(kaizen_text)
+        
+        # Construct final MD
+        final_md_parts = []
+        final_md_parts.append(title_section)
+        final_md_parts.append("\n\n---\n\n")
+        
+        # Calculate averages for Overview
+        merged_overview_text = merged_overview[0] if merged_overview else "(No overview found)"
+        if merged_overview_text != "(No overview found)":
+            if all_cts:
+                avg_ct = sum(all_cts) / len(all_cts)
+                merged_overview_text = re.sub(r"(\* \*\*预估节拍 \(CT\):\*\*).*", f"\\1 约 {avg_ct:.2f} 秒 (基于多Batch平均)", merged_overview_text)
+            if all_uphs:
+                avg_uph = sum(all_uphs) / len(all_uphs)
+                merged_overview_text = re.sub(r"(\* \*\*理论产能 \(UPH\):\*\*).*", f"\\1 约 {int(avg_uph)} pcs/h (基于多Batch平均)", merged_overview_text)
+
+        final_md_parts.append("## 1. 工序概览\n")
+        final_md_parts.append(merged_overview_text)
+        final_md_parts.append("\n\n---\n\n")
+        
+        final_md_parts.append("## 2. 详细动作分析表 (Motion Breakdown)\n")
+        if table_header and table_separator:
+            final_md_parts.append(table_header)
+            final_md_parts.append(table_separator)
+            final_md_parts.append("\n".join(merged_rows))
+        else:
+            final_md_parts.append("(No table data found)")
+        final_md_parts.append("\n\n---\n\n")
+        
+        final_md_parts.append("## 3. 深度诊断发现 (Deep Dive Findings)\n")
+        
+        # Output categorized findings
+        # 稳定性 (Stability)
+        if merged_findings["Stability"]:
+            final_md_parts.append("* **稳定性 (Stability):**")
+            for item in merged_findings["Stability"]:
+                final_md_parts.append(f"  {item}")
+            final_md_parts.append("")
+
+        # 人机工程 (Ergonomics)
+        if merged_findings["Ergonomics"]:
+            final_md_parts.append("* **人机工程 (Ergonomics):**")
+            for item in merged_findings["Ergonomics"]:
+                final_md_parts.append(f"  {item}")
+            final_md_parts.append("")
+
+        # 认知负荷 (Cognitive Load)
+        if merged_findings["Cognitive Load"]:
+            final_md_parts.append("* **认知负荷 (Cognitive Load):**")
+            for item in merged_findings["Cognitive Load"]:
+                final_md_parts.append(f"  {item}")
+            final_md_parts.append("")
+
+        # 物料/环境 (Material/Environment)
+        if merged_findings["Material/Environment"]:
+            final_md_parts.append("* **物料/环境 (Material/Environment):**")
+            for item in merged_findings["Material/Environment"]:
+                final_md_parts.append(f"  {item}")
+            final_md_parts.append("")
+
+        final_md_parts.append("\n\n---\n\n")
+        
+        final_md_parts.append("## 4. 改善机会 (Kaizen Opportunities)\n")
+        final_md_parts.append("\n".join(merged_kaizen))
+        
+        final_content = "\n".join(final_md_parts)
+        
+        final_md_path = os.path.join("result", f"{video_name}.md")
+        with open(final_md_path, "w", encoding="utf-8") as f:
+            f.write(final_content)
+            
+        print(f"Successfully merged {batch_index} batches into {final_md_path}", flush=True)
         actions = _merge_adjacent_actions(all_actions)
         computed_stats = compute_stats(actions)
 
         advice_list: List[str] = []
         try:
+            if prompt_override:
+                raise ValueError("Skip advice")
             advice_req = (
                 "基于下面的动作序列（actions）与统计信息（stats），给出 3-8 条工艺流程改进建议。\n"
                 "只输出 JSON：{\"advice\": [\"...\"]}\n"
@@ -903,6 +1163,7 @@ def analyze_video(
     sample_fps: float = 0.0,
     frames_dir: Optional[str] = None,
     prompt_override: Optional[str] = None,
+    output_stem: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[DetectedAction]]:
     normalized = _normalize_kimi_model_name(model)
     if normalized.startswith("kimi") or normalized.startswith("moonshot"):
@@ -913,6 +1174,7 @@ def analyze_video(
             sample_fps,
             frames_dir=frames_dir,
             prompt_override=prompt_override,
+            output_stem=output_stem,
         )
 
     client = genai.Client(api_key=api_key)
@@ -975,10 +1237,16 @@ def analyze_video(
         file_info = wait_until_file_active(client, uploaded_file.name or "")
         contents = [uploaded_file]
 
-    prompt = build_prompt(use_frames=use_frames)
+    prompt = (prompt_override or "").strip() or build_prompt(use_frames=use_frames)
     contents.append(prompt)
     
-    schema = build_response_json_schema()
+    generation_config = {}
+    if not prompt_override:
+        schema = build_response_json_schema()
+        generation_config = {
+            "response_mime_type": "application/json",
+            "response_json_schema": schema,
+        }
 
     primary_model = model
     fallback_model = "gemini-2.5-flash"
@@ -988,24 +1256,25 @@ def analyze_video(
         client,
         primary_model,
         contents,
-        {
-            "response_mime_type": "application/json",
-            "response_json_schema": schema,
-        },
+        generation_config,
         fallback_model=fallback_model,
     )
 
     text = response.text or "{}"
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        data = {}
-
+    
     model_output: ModelOutput = {}
-    if isinstance(data, dict):
-        model_output = data  # type: ignore[assignment]
-    elif isinstance(data, list):
-        model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
+    if prompt_override:
+        model_output = {"raw_content": text, "actions": [], "stats": {}, "advice": []}
+    else:
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = {}
+
+        if isinstance(data, dict):
+            model_output = data  # type: ignore[assignment]
+        elif isinstance(data, list):
+            model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
 
     actions = parse_actions(model_output.get("actions"))
     computed_stats = compute_stats(actions)
@@ -1097,9 +1366,9 @@ def main() -> None:
         help="如果指定，则直接使用该目录内图片作为输入（优先于 --fps 拆帧）。",
     )
     parser.add_argument(
-        "--prompt-json",
+        "--prompt-file",
         default="",
-        help="从指定 JSON 文件读取 prompt 字段并覆盖默认提示词。",
+        help="从指定文件读取 prompt（支持 .json 或纯文本）。",
     )
     args = parser.parse_args()
 
@@ -1118,7 +1387,15 @@ def main() -> None:
         args.model = os.getenv("GEMINI_MODEL", "kimi-2.5")
 
     frames_dir = str(args.frames_dir or "").strip() or None
-    prompt_override = load_prompt_from_json(str(args.prompt_json or "").strip())
+    prompt_override = load_prompt_from_file(str(args.prompt_file or "data/prompt.md").strip())
+    
+    out_path = args.out or default_result_path(args.video)
+    if not args.out and prompt_override:
+        # If using custom prompt (likely markdown), change extension to .md
+        out_path = os.path.splitext(out_path)[0] + ".md"
+
+    output_stem = os.path.splitext(os.path.basename(out_path))[0]
+    
     payload, actions = analyze_video(
         api_key=api_key,
         video_path=args.video,
@@ -1126,10 +1403,22 @@ def main() -> None:
         sample_fps=float(args.fps),
         frames_dir=frames_dir,
         prompt_override=prompt_override,
+        output_stem=output_stem,
     )
-    out_path = args.out or default_result_path(args.video)
-    write_result(out_path, payload)
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if prompt_override and "model_output" in payload and "raw_content" in payload["model_output"]:
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(payload["model_output"]["raw_content"])
+    elif not prompt_override:
+        write_result(out_path, payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+    # Check if MD file exists (likely created by manual merge or raw content write)
+    # and update out_path for the log message if needed.
+    md_path_check = os.path.splitext(out_path)[0] + ".md"
+    if os.path.exists(md_path_check):
+        out_path = md_path_check
+
+    print(f"Analysis complete. Result saved to {out_path}")
 
 
 if __name__ == "__main__":

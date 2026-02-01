@@ -1,0 +1,249 @@
+{
+  "input": {
+    "video_path": "kimi.mp4"
+  },
+  "model": {
+    "requested": "kimi-k2.5",
+    "used": "kimi-k2.5"
+  },
+  "file": {
+    "name": null,
+    "uri": null,
+    "mime_type": null,
+    "state": "None"
+  },
+  "prompt": null,
+  "token_usage": null,
+  "token_summary": null,
+  "model_output": {
+    "actions": [
+      {
+        "label": "折盒",
+        "start_time": 0.0,
+        "end_time": 3.0,
+        "confidence": 0.95
+      },
+      {
+        "label": "放说明书",
+        "start_time": 3.0,
+        "end_time": 6.0,
+        "confidence": 0.92
+      },
+      {
+        "label": "胶带封口",
+        "start_time": 6.0,
+        "end_time": 8.0,
+        "confidence": 0.94
+      },
+      {
+        "label": "装产品",
+        "start_time": 8.0,
+        "end_time": 12.0,
+        "confidence": 0.9
+      },
+      {
+        "label": "拿取产品",
+        "start_time": 12.0,
+        "end_time": 15.0,
+        "confidence": 0.93
+      },
+      {
+        "label": "放说明书",
+        "start_time": 15.0,
+        "end_time": 20.0,
+        "confidence": 0.88
+      },
+      {
+        "label": "装产品",
+        "start_time": 20.0,
+        "end_time": 25.0,
+        "confidence": 0.91
+      },
+      {
+        "label": "套袋",
+        "start_time": 25.0,
+        "end_time": 30.0,
+        "confidence": 0.89
+      },
+      {
+        "label": "拿取产品",
+        "start_time": 30.0,
+        "end_time": 35.0,
+        "confidence": 0.92
+      },
+      {
+        "label": "套袋",
+        "start_time": 35.0,
+        "end_time": 42.0,
+        "confidence": 0.9
+      },
+      {
+        "label": "装产品",
+        "start_time": 42.0,
+        "end_time": 50.0,
+        "confidence": 0.88
+      }
+    ],
+    "stats": {
+      "total_actions": 11,
+      "unique_action_type_count": 6,
+      "avg_action_duration": 4.55,
+      "action_types": [
+        {
+          "label": "折盒",
+          "count": 1,
+          "avg_duration": 3.0
+        },
+        {
+          "label": "放说明书",
+          "count": 2,
+          "avg_duration": 4.0
+        },
+        {
+          "label": "胶带封口",
+          "count": 1,
+          "avg_duration": 2.0
+        },
+        {
+          "label": "装产品",
+          "count": 3,
+          "avg_duration": 5.67
+        },
+        {
+          "label": "拿取产品",
+          "count": 2,
+          "avg_duration": 4.0
+        },
+        {
+          "label": "套袋",
+          "count": 2,
+          "avg_duration": 6.0
+        }
+      ]
+    },
+    "advice": [
+      "优化工作台物料布局，将说明书、胶带、缓冲纸板等常用物料放置在伸手可及的范围内，减少动作浪费",
+      "引入预折叠纸盒或小型自动折盒设备，将折盒时间缩短50%以上",
+      "使用台式胶带封口机替代手持式胶带器，实现双手同时操作，提高封口效率",
+      "建立标准作业流程(SOP)，将套袋、装产品、放缓冲材等动作组合成连续流，减少动作切换时间",
+      "实施物料看板管理，在工位旁设置最低库存警示，避免因物料短缺导致的等待浪费",
+      "调整工作台高度至肘部水平，并增加倾斜式物料架，符合人体工程学，降低长时间作业的疲劳度",
+      "考虑使用防静电真空吸盘辅助拿取较重产品部件，减轻手部负担并提高拿取稳定性"
+    ]
+  },
+  "computed_stats": {
+    "total_actions": 11,
+    "unique_action_type_count": 6,
+    "avg_action_duration": 4.55,
+    "action_types": [
+      {
+        "label": "折盒",
+        "count": 1,
+        "avg_duration": 3.0
+      },
+      {
+        "label": "放说明书",
+        "count": 2,
+        "avg_duration": 4.0
+      },
+      {
+        "label": "胶带封口",
+        "count": 1,
+        "avg_duration": 2.0
+      },
+      {
+        "label": "装产品",
+        "count": 3,
+        "avg_duration": 5.67
+      },
+      {
+        "label": "拿取产品",
+        "count": 2,
+        "avg_duration": 4.0
+      },
+      {
+        "label": "套袋",
+        "count": 2,
+        "avg_duration": 6.0
+      }
+    ]
+  },
+  "actions": [
+    {
+      "label": "折盒",
+      "start_time": 0.0,
+      "end_time": 3.0,
+      "confidence": 0.95
+    },
+    {
+      "label": "放说明书",
+      "start_time": 3.0,
+      "end_time": 6.0,
+      "confidence": 0.92
+    },
+    {
+      "label": "胶带封口",
+      "start_time": 6.0,
+      "end_time": 8.0,
+      "confidence": 0.94
+    },
+    {
+      "label": "装产品",
+      "start_time": 8.0,
+      "end_time": 12.0,
+      "confidence": 0.9
+    },
+    {
+      "label": "拿取产品",
+      "start_time": 12.0,
+      "end_time": 15.0,
+      "confidence": 0.93
+    },
+    {
+      "label": "放说明书",
+      "start_time": 15.0,
+      "end_time": 20.0,
+      "confidence": 0.88
+    },
+    {
+      "label": "装产品",
+      "start_time": 20.0,
+      "end_time": 25.0,
+      "confidence": 0.91
+    },
+    {
+      "label": "套袋",
+      "start_time": 25.0,
+      "end_time": 30.0,
+      "confidence": 0.89
+    },
+    {
+      "label": "拿取产品",
+      "start_time": 30.0,
+      "end_time": 35.0,
+      "confidence": 0.92
+    },
+    {
+      "label": "套袋",
+      "start_time": 35.0,
+      "end_time": 42.0,
+      "confidence": 0.9
+    },
+    {
+      "label": "装产品",
+      "start_time": 42.0,
+      "end_time": 50.0,
+      "confidence": 0.88
+    }
+  ],
+  "advice": [
+    "优化工作台物料布局，将说明书、胶带、缓冲纸板等常用物料放置在伸手可及的范围内，减少动作浪费",
+    "引入预折叠纸盒或小型自动折盒设备，将折盒时间缩短50%以上",
+    "使用台式胶带封口机替代手持式胶带器，实现双手同时操作，提高封口效率",
+    "建立标准作业流程(SOP)，将套袋、装产品、放缓冲材等动作组合成连续流，减少动作切换时间",
+    "实施物料看板管理，在工位旁设置最低库存警示，避免因物料短缺导致的等待浪费",
+    "调整工作台高度至肘部水平，并增加倾斜式物料架，符合人体工程学，降低长时间作业的疲劳度",
+    "考虑使用防静电真空吸盘辅助拿取较重产品部件，减轻手部负担并提高拿取稳定性"
+  ],
+  "created_at": 1769670197.185437
+}

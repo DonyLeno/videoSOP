@@ -1027,35 +1027,53 @@
           </div>
         </div>
 
-        <!-- Bottom Stats & Advice -->
-        <div class="stats-grid">
-           <div class="stat-card">
-             <div class="stat-title">动作总数</div>
-             <div class="stat-value" id="statTotal">-</div>
-           </div>
-           <div class="stat-card">
-             <div class="stat-title">动作种类</div>
-             <div class="stat-value" id="statTypes">-</div>
-           </div>
-           <div class="stat-card">
-             <div class="stat-title">平均时长</div>
-             <div class="stat-value" id="statAvg">-</div>
-           </div>
+        <!-- Legacy Stats View (JSON) -->
+        <div id="legacyStatsView">
+          <div class="stats-grid">
+             <div class="stat-card">
+               <div class="stat-title">动作总数</div>
+               <div class="stat-value" id="statTotal">-</div>
+             </div>
+             <div class="stat-card">
+               <div class="stat-title">动作种类</div>
+               <div class="stat-value" id="statTypes">-</div>
+             </div>
+             <div class="stat-card">
+               <div class="stat-title">平均时长</div>
+               <div class="stat-value" id="statAvg">-</div>
+             </div>
+          </div>
+
+          <div class="panel" style="margin-top: 20px;">
+              <div class="panel-header">动作种类分布 (柱状图)</div>
+              <div class="panel-body" style="display: block !important; height: auto !important; min-height: 520px !important;">
+                  <div style="display: block; width: 100%; height: 500px; overflow: hidden;">
+                      <canvas id="actionChart" width="800" height="500"></canvas>
+                  </div>
+              </div>
+          </div>
+
+          <div class="advice-panel">
+              <div class="panel-header" style="padding:0; margin-bottom:15px; border:0">工艺流程改进建议</div>
+              <div id="adviceList">
+                  <div style="color:var(--muted)">暂无建议</div>
+              </div>
+          </div>
         </div>
 
-        <div class="panel" style="margin-top: 20px;">
-            <div class="panel-header">动作种类分布 (柱状图)</div>
-            <div class="panel-body" style="display: block !important; height: auto !important; min-height: 520px !important;">
-                <div style="display: block; width: 100%; height: 500px; overflow: hidden;">
-                    <canvas id="actionChart" width="800" height="500"></canvas>
-                </div>
+        <!-- Markdown Result View (MD) -->
+        <div id="mdResultView" style="display:none; margin-top: 20px; display: flex; flex-direction: column; gap: 20px;">
+            <div class="panel">
+                <div class="panel-header">工序概览 (Overview)</div>
+                <div class="panel-body" id="mdOverview" style="white-space: pre-wrap; line-height: 1.6;"></div>
             </div>
-        </div>
-
-        <div class="advice-panel">
-            <div class="panel-header" style="padding:0; margin-bottom:15px; border:0">工艺流程改进建议</div>
-            <div id="adviceList">
-                <div style="color:var(--muted)">暂无建议</div>
+            <div class="panel">
+                <div class="panel-header">深度诊断发现 (Deep Dive Findings)</div>
+                <div class="panel-body" id="mdDeepDive" style="white-space: pre-wrap; line-height: 1.6;"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">改善机会 (Kaizen Opportunities)</div>
+                <div class="panel-body" id="mdKaizen" style="white-space: pre-wrap; line-height: 1.6;"></div>
             </div>
         </div>
       </div>
@@ -1122,7 +1140,7 @@
                   切换后立即生效，并记住你的选择。
                 </div>
             </div>
-            <p style="color: var(--muted); font-size: 13px;">当前版本: v1.1.0 (genieview 2.0 Ready)</p>
+            <p style="color: var(--muted); font-size: 13px;">当前版本: <span id="currentVersion">loading...</span></p>
           </div>
         </div>
       </div>
@@ -1236,24 +1254,57 @@
     </div>
 
     <div id="editModal" class="modal-overlay">
-      <div class="modal-content">
+      <div class="modal-content" style="max-width: 600px;">
         <div class="modal-header">编辑动作</div>
-        <div class="modal-form-group">
-          <label>动作标签</label>
-          <input type="text" id="editLabel" class="modal-input">
+        
+        <div class="modal-row" style="display: flex; gap: 10px;">
+            <div class="modal-form-group" style="flex: 1;">
+                <label>序号</label>
+                <input type="text" id="editIndex" class="modal-input" disabled>
+            </div>
+            <div class="modal-form-group" style="flex: 3;">
+                <label>动作描述</label>
+                <input type="text" id="editLabel" class="modal-input">
+            </div>
         </div>
-        <div class="modal-form-group">
-          <label>描述</label>
-          <input type="text" id="editDescription" class="modal-input">
+
+        <div class="modal-row" style="display: flex; gap: 10px;">
+             <div class="modal-form-group" style="flex: 1;">
+                <label>动素类别</label>
+                <input type="text" id="editType" class="modal-input">
+            </div>
+            <div class="modal-form-group" style="flex: 1;">
+                <label>增值/非增值</label>
+                <input type="text" id="editValueAdded" class="modal-input">
+            </div>
         </div>
-        <div class="modal-form-group">
-          <label>开始时间 (s)</label>
-          <input type="number" step="0.1" id="editStart" class="modal-input">
+
+        <div class="modal-row" style="display: flex; gap: 10px;">
+            <div class="modal-form-group" style="flex: 1;">
+                <label>左手状态</label>
+                <input type="text" id="editLeftHand" class="modal-input">
+            </div>
+            <div class="modal-form-group" style="flex: 1;">
+                <label>右手状态</label>
+                <input type="text" id="editRightHand" class="modal-input">
+            </div>
         </div>
-        <div class="modal-form-group">
-          <label>结束时间 (s)</label>
-          <input type="number" step="0.1" id="editEnd" class="modal-input">
+
+        <div class="modal-row" style="display: flex; gap: 10px;">
+            <div class="modal-form-group" style="flex: 1;">
+                <label>开始时间 (s)</label>
+                <input type="number" step="0.01" id="editStart" class="modal-input">
+            </div>
+            <div class="modal-form-group" style="flex: 1;">
+                <label>结束时间 (s)</label>
+                <input type="number" step="0.01" id="editEnd" class="modal-input">
+            </div>
+             <div class="modal-form-group" style="flex: 1;">
+                <label>预估耗时 (s)</label>
+                <input type="text" id="editDuration" class="modal-input" disabled placeholder="自动计算">
+            </div>
         </div>
+
         <div class="modal-actions">
           <button class="btn-modal btn-cancel" id="btnCancelEdit">取消</button>
           <button class="btn-modal btn-save" id="btnSaveEdit">保存</button>
@@ -1583,6 +1634,19 @@
         setupUserManagement();
       });
 
+      async function fetchVersion() {
+        try {
+          const res = await fetch('/api/version');
+          if (res.ok) {
+            const data = await res.json();
+            const el = document.getElementById('currentVersion');
+            if (el && data.version) {
+              el.textContent = data.version;
+            }
+          }
+        } catch {}
+      }
+
       function switchTab(tabId) {
         document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
         const navTarget = Array.from(document.querySelectorAll('.nav-item')).find(el => el.dataset.tab === tabId);
@@ -1594,6 +1658,7 @@
         if (tabId === 'detection') loadVideoList();
         if (tabId === 'review') loadResultList();
         if (tabId === 'users') loadUserList();
+        if (tabId === 'settings') fetchVersion();
         setSidebarDrawerOpen(false);
       }
 
@@ -2329,14 +2394,14 @@
           const oldRes = resSel.value;
           const oldVid = vidSel.value;
 
-          resSel.innerHTML = '<option value="">选择结果 JSON...</option>';
+          resSel.innerHTML = '<option value="">选择结果文件...</option>';
           vidSel.innerHTML = '<option value="">选择结果视频...</option>';
           
           data.files.forEach(f => {
             const opt = document.createElement('option');
             opt.value = 'result/' + f;
             opt.textContent = f;
-            if (f.endsWith('.json')) resSel.appendChild(opt);
+            if (f.endsWith('.json') || f.endsWith('.md')) resSel.appendChild(opt);
             else if (f.endsWith('.mp4')) vidSel.appendChild(opt.cloneNode(true));
           });
           
@@ -2349,7 +2414,7 @@
         }
       }
 
-      function autoSelectJsonByVideoPrefix(videoPath) {
+      function autoSelectResultByVideoPrefix(videoPath) {
         const resSel = document.getElementById('reviewResultSelect');
         if (!resSel) return;
         if (!videoPath) return;
@@ -2363,29 +2428,35 @@
 
         for (const opt of Array.from(resSel.options)) {
           const val = opt.value || '';
-          if (!val || !val.endsWith('.json')) continue;
-          const jsonFile = String(val).split('/').pop() || '';
-          const jsonBase = jsonFile.replace(/\.[^.]+$/, '');
-          if (!jsonBase) continue;
-          if (jsonBase === videoBase) {
-            exactMatch = opt;
-            break;
+          if (!val || (!val.endsWith('.json') && !val.endsWith('.md'))) continue;
+          const resFile = String(val).split('/').pop() || '';
+          const resBase = resFile.replace(/\.[^.]+$/, '');
+          if (!resBase) continue;
+          
+          if (resBase === videoBase) {
+            // Prefer MD over JSON if exact match
+            if (val.endsWith('.md')) {
+                exactMatch = opt;
+                break; // Found best match
+            }
+            if (!exactMatch) exactMatch = opt;
           }
-          if (jsonBase.startsWith(videoBase) || videoBase.startsWith(jsonBase)) {
-            const commonLen = Math.min(jsonBase.length, videoBase.length);
-            prefixCandidates.push({ opt, commonLen, jsonBaseLen: jsonBase.length });
+          
+          if (resBase.startsWith(videoBase) || videoBase.startsWith(resBase)) {
+            const commonLen = Math.min(resBase.length, videoBase.length);
+            prefixCandidates.push({ opt, commonLen, resBaseLen: resBase.length });
           }
         }
 
         const best = exactMatch || prefixCandidates.sort((a, b) => {
           if (b.commonLen !== a.commonLen) return b.commonLen - a.commonLen;
-          return b.jsonBaseLen - a.jsonBaseLen;
+          return b.resBaseLen - a.resBaseLen;
         })[0]?.opt;
 
         if (!best) {
           resSel.value = '';
           currentJsonPath = '';
-          notify('未找到名称前缀相同的 JSON 文件：' + videoFile);
+          notify('未找到名称前缀相同的结果文件：' + videoFile);
           return;
         }
 
@@ -2401,44 +2472,75 @@
           // Use absolute path for browser access
           elVideo.src = '/' + e.target.value;
           document.getElementById('videoName').textContent = e.target.value;
-          autoSelectJsonByVideoPrefix(e.target.value);
+          autoSelectResultByVideoPrefix(e.target.value);
         }
       });
+
+      function renderMdView(data) {
+        document.getElementById('mdResultView').style.display = 'flex';
+        document.getElementById('legacyStatsView').style.display = 'none';
+
+        document.getElementById('mdOverview').innerText = data.overview || "（无内容）";
+        document.getElementById('mdDeepDive').innerText = data.deep_dive || "（无内容）";
+        document.getElementById('mdKaizen').innerText = data.kaizen || "（无内容）";
+      }
+
+      function renderLegacyView() {
+        document.getElementById('mdResultView').style.display = 'none';
+        document.getElementById('legacyStatsView').style.display = 'block';
+      }
 
       document.getElementById('reviewResultSelect').addEventListener('change', async (e) => {
         if (!e.target.value) return;
         try {
             currentJsonPath = e.target.value;
-            const jsonUrl = '/' + e.target.value + (e.target.value.includes('?') ? '&' : '?') + 'ts=' + Date.now();
-            const res = await fetch(jsonUrl, { cache: 'no-store' });
-            if (!res.ok) throw new Error("Failed to load JSON");
+            const apiUrl = '/api/result_details?path=' + encodeURIComponent(e.target.value) + '&ts=' + Date.now();
+            
+            const res = await authFetch(apiUrl);
+            if (!res.ok) throw new Error("Failed to load result");
             const data = await res.json();
 
-            let actions = null;
-            let stats = null;
-            if (Array.isArray(data)) {
-              actions = data;
-            } else if (data && typeof data === 'object') {
-              if (Array.isArray(data.actions)) actions = data.actions;
-              else if (data.model_output && Array.isArray(data.model_output.actions)) actions = data.model_output.actions;
-              else if (data.output && Array.isArray(data.output.actions)) actions = data.output.actions;
+            // Detect if it is a parsed MD result or legacy JSON
+            // MD result from server has { overview, actions, deep_dive, kaizen }
+            const isMd = (data.overview !== undefined || data.deep_dive !== undefined || data.kaizen !== undefined);
 
-              stats = data.stats || (data.model_output && data.model_output.stats) || data.computed_stats || null;
+            if (isMd) {
+                renderMdView(data);
+                renderActions(data.actions || []);
+                // MD view does not use legacy stats/advice
+            } else {
+                renderLegacyView();
+                
+                let actions = null;
+                let stats = null;
+                if (Array.isArray(data)) {
+                  actions = data;
+                } else if (data && typeof data === 'object') {
+                  if (Array.isArray(data.actions)) actions = data.actions;
+                  else if (data.model_output && Array.isArray(data.model_output.actions)) actions = data.model_output.actions;
+                  else if (data.output && Array.isArray(data.output.actions)) actions = data.output.actions;
+
+                  stats = data.stats || (data.model_output && data.model_output.stats) || data.computed_stats || null;
+                }
+
+                if (!actions) {
+                  // If MD parsing failed or empty JSON, try to handle gracefully or show error
+                  if (!isMd && !data.actions) { // Only throw if strictly not MD structure
+                      const keys = data && typeof data === 'object' ? Object.keys(data).join(', ') : String(typeof data);
+                      throw new Error("未知的 JSON 格式（缺少 actions）。keys: " + keys);
+                  }
+                  actions = [];
+                }
+
+                renderActions(actions);
+                renderStats(stats);
+                renderAdvice(data.advice || (data.model_output && data.model_output.advice) || null);
             }
-
-            if (!actions) {
-              const keys = data && typeof data === 'object' ? Object.keys(data).join(', ') : String(typeof data);
-              throw new Error("未知的 JSON 格式（缺少 actions）。keys: " + keys);
-            }
-
-            renderActions(actions);
-            renderStats(stats);
-            renderAdvice(data.advice || (data.model_output && data.model_output.advice) || null);
             
             // Scroll to top
             document.getElementById('view-review').scrollTop = 0;
         } catch (e) {
-            notify("加载 JSON 失败: " + e.message);
+            notify("加载结果失败: " + e.message);
         }
       });
       
@@ -2460,7 +2562,7 @@
                 </div>
                 <div class="action-meta">
                     <div>${act.start_time}s - ${act.end_time}s</div>
-                    <div>${Math.round((act.confidence||0)*100)}%</div>
+                    <div style="font-size:11px; color:var(--primary);">${act.value_added || (act.confidence ? Math.round(act.confidence*100)+'%' : '')}</div>
                 </div>
             `;
             div.onclick = () => {
@@ -2750,10 +2852,19 @@
         const act = currentActions[editingActionIndex];
         
         hideContextMenu();
+        
+        document.getElementById('editIndex').value = act.index || (editingActionIndex + 1);
         document.getElementById('editLabel').value = act.label || '';
-        document.getElementById('editDescription').value = act.description || '';
-        document.getElementById('editStart').value = act.start_time || 0;
-        document.getElementById('editEnd').value = act.end_time || 0;
+        document.getElementById('editType').value = act.type || '';
+        document.getElementById('editValueAdded').value = act.value_added || '';
+        document.getElementById('editLeftHand').value = act.left_hand || '';
+        document.getElementById('editRightHand').value = act.right_hand || '';
+        
+        const start = act.start_time || 0;
+        const end = act.end_time || 0;
+        document.getElementById('editStart').value = start;
+        document.getElementById('editEnd').value = end;
+        document.getElementById('editDuration').value = act.duration || (Math.max(0, end - start).toFixed(1));
         
         if (elEditModal) elEditModal.classList.add('open');
       };
@@ -2768,9 +2879,19 @@
         // Update local data
         const act = currentActions[editingActionIndex];
         act.label = document.getElementById('editLabel').value;
-        act.description = document.getElementById('editDescription').value;
-        act.start_time = parseFloat(document.getElementById('editStart').value);
-        act.end_time = parseFloat(document.getElementById('editEnd').value);
+        act.type = document.getElementById('editType').value;
+        act.value_added = document.getElementById('editValueAdded').value;
+        act.left_hand = document.getElementById('editLeftHand').value;
+        act.right_hand = document.getElementById('editRightHand').value;
+        
+        const s = parseFloat(document.getElementById('editStart').value);
+        const e = parseFloat(document.getElementById('editEnd').value);
+        act.start_time = s;
+        act.end_time = e;
+        
+        const d = Math.max(0, e - s);
+        act.duration = d.toFixed(1);
+        act.time_range = s.toFixed(2) + " - " + e.toFixed(2);
         
         // Close modal
         if (elEditModal) elEditModal.classList.remove('open');
@@ -2781,16 +2902,18 @@
         // Send update to server
         const resultFile = currentJsonPath || document.getElementById('reviewResultSelect').value;
         if (!resultFile) {
-          notify('未找到对应的 JSON 结果文件，请重新选择视频。');
+          notify('未找到对应的结果文件，请重新选择视频。');
           return;
         }
+
+        const isMd = resultFile.toLowerCase().endsWith('.md');
 
         try {
           const res = await authFetch('/api/update_result', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-              json_path: resultFile,
+              json_path: resultFile, // Server accepts json_path/filename/path
               actions: currentActions
             })
           });
@@ -2801,17 +2924,21 @@
           }
           
           const data = await res.json();
-          function extractStats(payload) {
-            if (!payload || typeof payload !== 'object') return null;
-            if (payload.stats && typeof payload.stats === 'object') return payload.stats;
-            if (payload.model_output && payload.model_output.stats) return payload.model_output.stats;
-            if (payload.output && payload.output.stats) return payload.output.stats;
-            if (payload.data) return extractStats(payload.data);
-            return null;
+          
+          if (!isMd) {
+              function extractStats(payload) {
+                if (!payload || typeof payload !== 'object') return null;
+                if (payload.stats && typeof payload.stats === 'object') return payload.stats;
+                if (payload.model_output && payload.model_output.stats) return payload.model_output.stats;
+                if (payload.output && payload.output.stats) return payload.output.stats;
+                if (payload.data) return extractStats(payload.data);
+                return null;
+              }
+              // Update stats with server response (only for legacy JSON)
+              const stats = extractStats(data);
+              if (stats) renderStats(stats);
           }
-          // Update stats with server response
-          const stats = extractStats(data);
-          if (stats) renderStats(stats);
+
           notify('保存成功');
           
         } catch (e) {

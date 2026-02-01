@@ -4,7 +4,7 @@ services:
     container_name: gemini-server
     platform: linux/amd64
     ports:
-      - "8000:8000"
+      - "80:8000"
     volumes:
       - ./data:/app/data
       - ./result:/app/result

@@ -3,7 +3,7 @@ __pycache__/
 .env
 *.log
 result/
-gemini-video-analysis-amd64.tar
+*.tar
 .DS_Store
 .port
 -=yt.py

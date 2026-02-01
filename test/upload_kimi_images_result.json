@@ -1,0 +1,634 @@
+{
+  "images_root": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi",
+  "folder_name": "kimi",
+  "count": 100,
+  "items": [
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00000_0.00.jpg",
+      "relative_path": "frame_00000_0.00.jpg",
+      "remote_id": "f7xj94guf6ti11bnjeb1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00015_0.50.jpg",
+      "relative_path": "frame_00015_0.50.jpg",
+      "remote_id": "f7xj94i3m4o111g4jsoi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00030_1.00.jpg",
+      "relative_path": "frame_00030_1.00.jpg",
+      "remote_id": "f7xj94z87k3i11dqe7h1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00045_1.50.jpg",
+      "relative_path": "frame_00045_1.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00060_2.00.jpg",
+      "relative_path": "frame_00060_2.00.jpg",
+      "remote_id": "f7xj9518bfm111dozemi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00075_2.50.jpg",
+      "relative_path": "frame_00075_2.50.jpg",
+      "remote_id": "f7xj95daeid111ak1esi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00090_3.00.jpg",
+      "relative_path": "frame_00090_3.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00105_3.50.jpg",
+      "relative_path": "frame_00105_3.50.jpg",
+      "remote_id": "f7xj964pjypi11azp3ui",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00120_4.00.jpg",
+      "relative_path": "frame_00120_4.00.jpg",
+      "remote_id": "f7xj96guf6ti11bnkm11",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00135_4.50.jpg",
+      "relative_path": "frame_00135_4.50.jpg",
+      "remote_id": "f7xj96nqq79i11cphy81",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00150_5.00.jpg",
+      "relative_path": "frame_00150_5.00.jpg",
+      "remote_id": "f7xj96puf6ti11bnkwfi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00165_5.50.jpg",
+      "relative_path": "frame_00165_5.50.jpg",
+      "remote_id": "f7xj96sqets111d5fkri",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00180_6.00.jpg",
+      "relative_path": "frame_00180_6.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00195_6.50.jpg",
+      "relative_path": "frame_00195_6.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00210_7.00.jpg",
+      "relative_path": "frame_00210_7.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00225_7.50.jpg",
+      "relative_path": "frame_00225_7.50.jpg",
+      "remote_id": "f7xj97jdd4d111bq4wt1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00240_8.00.jpg",
+      "relative_path": "frame_00240_8.00.jpg",
+      "remote_id": "f7xj97r8bfm111dp1zm1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00255_8.50.jpg",
+      "relative_path": "frame_00255_8.50.jpg",
+      "remote_id": "f7xj97r8p8i111fmyto1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00270_9.00.jpg",
+      "relative_path": "frame_00270_9.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00285_9.50.jpg",
+      "relative_path": "frame_00285_9.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00300_10.00.jpg",
+      "relative_path": "frame_00300_10.00.jpg",
+      "remote_id": "f7xj98pascwi11ah3d3i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00315_10.50.jpg",
+      "relative_path": "frame_00315_10.50.jpg",
+      "remote_id": "f7xj98j783bi11fmt411",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00330_11.00.jpg",
+      "relative_path": "frame_00330_11.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00345_11.50.jpg",
+      "relative_path": "frame_00345_11.50.jpg",
+      "remote_id": "f7xj9918p8i111fmzie1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00360_12.00.jpg",
+      "relative_path": "frame_00360_12.00.jpg",
+      "remote_id": "f7xj9918p8i111fmznr1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00375_12.50.jpg",
+      "relative_path": "frame_00375_12.50.jpg",
+      "remote_id": "f7xj99eqq79i11cpju51",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00390_13.00.jpg",
+      "relative_path": "frame_00390_13.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00405_13.50.jpg",
+      "relative_path": "frame_00405_13.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00420_14.00.jpg",
+      "relative_path": "frame_00420_14.00.jpg",
+      "remote_id": "f7xj9a3dd4d111bq6m8i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00435_14.50.jpg",
+      "relative_path": "frame_00435_14.50.jpg",
+      "remote_id": "f7xj9aguf6ti11bnocqi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00450_15.00.jpg",
+      "relative_path": "frame_00450_15.00.jpg",
+      "remote_id": "f7xj9ai8bfm111dp4xdi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00465_15.50.jpg",
+      "relative_path": "frame_00465_15.50.jpg",
+      "remote_id": "f7xj9atr798111dbwnc1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00480_16.00.jpg",
+      "relative_path": "frame_00480_16.00.jpg",
+      "remote_id": "f7xj9aunc9x111cqhmci",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00495_16.50.jpg",
+      "relative_path": "frame_00495_16.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00510_17.00.jpg",
+      "relative_path": "frame_00510_17.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00525_17.50.jpg",
+      "relative_path": "frame_00525_17.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00540_18.00.jpg",
+      "relative_path": "frame_00540_18.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00555_18.50.jpg",
+      "relative_path": "frame_00555_18.50.jpg",
+      "remote_id": "f7xj9bskrog111hj3iri",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00570_19.00.jpg",
+      "relative_path": "frame_00570_19.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00585_19.50.jpg",
+      "relative_path": "frame_00585_19.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00600_20.00.jpg",
+      "relative_path": "frame_00600_20.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00615_20.50.jpg",
+      "relative_path": "frame_00615_20.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00630_21.00.jpg",
+      "relative_path": "frame_00630_21.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00645_21.50.jpg",
+      "relative_path": "frame_00645_21.50.jpg",
+      "remote_id": "f7xj9d4pjypi11aztma1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00660_22.00.jpg",
+      "relative_path": "frame_00660_22.00.jpg",
+      "remote_id": "f7xj9da3m4o111g4qhyi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00675_22.50.jpg",
+      "relative_path": "frame_00675_22.50.jpg",
+      "remote_id": "f7xj9dbq8qg111cnzor1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00690_23.00.jpg",
+      "relative_path": "frame_00690_23.00.jpg",
+      "remote_id": "f7xj9djkrog111hj4pb1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00705_23.50.jpg",
+      "relative_path": "frame_00705_23.50.jpg",
+      "remote_id": "f7xj9dy1g44i11fo719i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00720_24.00.jpg",
+      "relative_path": "frame_00720_24.00.jpg",
+      "remote_id": "f7xj9dr8p8i111fn4yw1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00735_24.50.jpg",
+      "relative_path": "frame_00735_24.50.jpg",
+      "remote_id": "f7xj9e8uf6ti11bnqt71",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00750_25.00.jpg",
+      "relative_path": "frame_00750_25.00.jpg",
+      "remote_id": "f7xj9ebqets111d5koyi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00765_25.50.jpg",
+      "relative_path": "frame_00765_25.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00780_26.00.jpg",
+      "relative_path": "frame_00780_26.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00795_26.50.jpg",
+      "relative_path": "frame_00795_26.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00810_27.00.jpg",
+      "relative_path": "frame_00810_27.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00825_27.50.jpg",
+      "relative_path": "frame_00825_27.50.jpg",
+      "remote_id": "f7xj9fbqets111d5mbhi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00840_28.00.jpg",
+      "relative_path": "frame_00840_28.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00855_28.50.jpg",
+      "relative_path": "frame_00855_28.50.jpg",
+      "remote_id": "f7xj9fjdd4d111bqa7j1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00870_29.00.jpg",
+      "relative_path": "frame_00870_29.00.jpg",
+      "remote_id": "f7xj9fsqets111d5mo6i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00885_29.50.jpg",
+      "relative_path": "frame_00885_29.50.jpg",
+      "remote_id": "f7xj9g3ifphi11bx4r7i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00900_30.00.jpg",
+      "relative_path": "frame_00900_30.00.jpg",
+      "remote_id": "f7xj9gb783bi11fmz7h1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00915_30.50.jpg",
+      "relative_path": "frame_00915_30.50.jpg",
+      "remote_id": "f7xj9gmaeid111ak9mdi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00930_31.00.jpg",
+      "relative_path": "frame_00930_31.00.jpg",
+      "remote_id": "f7xj9gjkrog111hj6q61",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00945_31.50.jpg",
+      "relative_path": "frame_00945_31.50.jpg",
+      "remote_id": "f7xj9gr8p8i111fn6rk1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00960_32.00.jpg",
+      "relative_path": "frame_00960_32.00.jpg",
+      "remote_id": "f7xj9h5nc9x111cqmqq1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00975_32.50.jpg",
+      "relative_path": "frame_00975_32.50.jpg",
+      "remote_id": "f7xj9heqq79i11cpq511",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_00990_33.00.jpg",
+      "relative_path": "frame_00990_33.00.jpg",
+      "remote_id": "f7xj9hh87k3i11dqnkgi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01005_33.50.jpg",
+      "relative_path": "frame_01005_33.50.jpg",
+      "remote_id": "f7xj9hk5gm1111a8itd1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01020_34.00.jpg",
+      "relative_path": "frame_01020_34.00.jpg",
+      "remote_id": "f7xj9hr8p8i111fn7dp1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01035_34.50.jpg",
+      "relative_path": "frame_01035_34.50.jpg",
+      "remote_id": "f7xj9i3dd4d111bqboz1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01050_35.00.jpg",
+      "relative_path": "frame_01050_35.00.jpg",
+      "remote_id": "f7xj9i3ifphi11bx64j1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01065_35.50.jpg",
+      "relative_path": "frame_01065_35.50.jpg",
+      "remote_id": "f7xj9ieqq79i11cpqte1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01080_36.00.jpg",
+      "relative_path": "frame_01080_36.00.jpg",
+      "remote_id": "f7xj9imaeid111akb1f1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01095_36.50.jpg",
+      "relative_path": "frame_01095_36.50.jpg",
+      "remote_id": "f7xj9it8epo111fx9py1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01110_37.00.jpg",
+      "relative_path": "frame_01110_37.00.jpg",
+      "remote_id": "f7xj9iy1g44i11foajmi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01125_37.50.jpg",
+      "relative_path": "frame_01125_37.50.jpg",
+      "remote_id": "f7xj9j4r798111dc45f1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01140_38.00.jpg",
+      "relative_path": "frame_01140_38.00.jpg",
+      "remote_id": "f7xj9jc5gm1111a8jux1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01155_38.50.jpg",
+      "relative_path": "frame_01155_38.50.jpg",
+      "remote_id": "f7xj9jcr798111dc4bxi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01170_39.00.jpg",
+      "relative_path": "frame_01170_39.00.jpg",
+      "remote_id": "f7xj9jpuf6ti11bnueti",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01185_39.50.jpg",
+      "relative_path": "frame_01185_39.50.jpg",
+      "remote_id": "f7xj9junc9x111cqok31",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01200_40.00.jpg",
+      "relative_path": "frame_01200_40.00.jpg",
+      "remote_id": "f7xj9k5nc9x111cqooh1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01215_40.50.jpg",
+      "relative_path": "frame_01215_40.50.jpg",
+      "remote_id": "f7xj9k5aeid111akc431",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01230_41.00.jpg",
+      "relative_path": "frame_01230_41.00.jpg",
+      "remote_id": "f7xj9kbkrog111hj967i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01245_41.50.jpg",
+      "relative_path": "frame_01245_41.50.jpg",
+      "remote_id": "f7xj9kjq8qg111co6dk1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01260_42.00.jpg",
+      "relative_path": "frame_01260_42.00.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01275_42.50.jpg",
+      "relative_path": "frame_01275_42.50.jpg",
+      "remote_id": "f7xj9m5aeid111akck6i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01290_43.00.jpg",
+      "relative_path": "frame_01290_43.00.jpg",
+      "remote_id": "f7xj9mbifphi11bx85p1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01305_43.50.jpg",
+      "relative_path": "frame_01305_43.50.jpg",
+      "remote_id": "f7xj9mpuf6ti11bnwnpi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01320_44.00.jpg",
+      "relative_path": "frame_01320_44.00.jpg",
+      "remote_id": "f7xj9mq87k3i11dqqcn1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01335_44.50.jpg",
+      "relative_path": "frame_01335_44.50.jpg",
+      "remote_id": "f7xj9mr8p8i111fna33i",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01350_45.00.jpg",
+      "relative_path": "frame_01350_45.00.jpg",
+      "remote_id": "f7xj9n5nc9x111cqq1bi",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01365_45.50.jpg",
+      "relative_path": "frame_01365_45.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01380_46.00.jpg",
+      "relative_path": "frame_01380_46.00.jpg",
+      "remote_id": "f7xj9nh87k3i11dqqsii",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01395_46.50.jpg",
+      "relative_path": "frame_01395_46.50.jpg",
+      "remote_id": "f7xj9njifphi11bx8z71",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01410_47.00.jpg",
+      "relative_path": "frame_01410_47.00.jpg",
+      "remote_id": "f7xj9nr8bfm111dpd451",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01425_47.50.jpg",
+      "relative_path": "frame_01425_47.50.jpg",
+      "remote_id": "f7xj9o8uf6ti11bnxpj1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01440_48.00.jpg",
+      "relative_path": "frame_01440_48.00.jpg",
+      "remote_id": "f7xj9obq8qg111co89a1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01455_48.50.jpg",
+      "relative_path": "frame_01455_48.50.jpg",
+      "remote_id": null,
+      "status": "error",
+      "error": "Error code: 400 - {'error': {'message': 'text extract error: 没有解析出内容', 'type': 'invalid_request_error'}}"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01470_49.00.jpg",
+      "relative_path": "frame_01470_49.00.jpg",
+      "remote_id": "f7xj9ojdd4d111bqfhd1",
+      "status": "ok"
+    },
+    {
+      "local_path": "/Users/ph/Documents/trae_projects/gemini/test/images/kimi/frame_01485_49.50.jpg",
+      "relative_path": "frame_01485_49.50.jpg",
+      "remote_id": "f7xj9ot5gm1111a8nus1",
+      "status": "ok"
+    }
+  ]
+}

@@ -205,7 +205,7 @@ def background_analyze_task(username, video_path, model, fps, api_key):
             '--out', json_path,
             '--fps', str(fps),
             '--frames-dir', frames_dir,
-            '--prompt-json', os.path.join('result', 'motor_12.15.00.40.json'),
+            '--prompt-file', 'data/prompt.md',
         ]
         output_video_filename = f"{base_name}_{timestamp}.mp4"
         output_video_path = os.path.join('result', output_video_filename)
@@ -353,6 +353,11 @@ def background_analyze_task(username, video_path, model, fps, api_key):
                 }
             }
         }
+
+        # Check for MD file if JSON doesn't exist (for custom prompt output)
+        md_path = os.path.splitext(json_path)[0] + '.md'
+        if not os.path.exists(json_path) and os.path.exists(md_path):
+            json_path = md_path
 
         if not os.path.exists(json_path):
             recovered = _extract_last_result_payload(analysis_stdout)
@@ -554,6 +559,193 @@ def get_token_info(token: str) -> Optional[Dict[str, object]]:
         TOKENS.pop(token, None)
         return None
     return info
+
+def get_latest_version() -> str:
+    try:
+        if not os.path.exists('version.md'):
+            return "Unknown"
+        with open('version.md', 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('## '):
+                    return line.strip().replace('## ', '')
+        return "Unknown"
+    except Exception:
+        return "Unknown"
+
+def _parse_time_str(t_str: str) -> float:
+    t_str = t_str.strip()
+    try:
+        return float(t_str)
+    except ValueError:
+        pass
+    
+    parts = t_str.split(':')
+    if len(parts) == 3:
+        return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+    elif len(parts) == 2:
+        return float(parts[0]) * 60 + float(parts[1])
+            
+    raise ValueError(f"Invalid time format: {t_str}")
+
+def _parse_md_content(content: str) -> Dict[str, object]:
+    """
+    Parses the Markdown result file to extract sections and actions.
+    """
+    sections = {
+        "overview": "",
+        "actions": [],
+        "deep_dive": "",
+        "kaizen": ""
+    }
+    
+    lines = content.splitlines()
+    current_section = None
+    action_table_lines = []
+    
+    # Regex patterns for section headers
+    re_overview = re.compile(r'^##\s+1\.\s*(工序概览|Overview)', re.IGNORECASE)
+    re_actions = re.compile(r'^##\s+2\.\s*(详细动作分析表|Motion Breakdown)', re.IGNORECASE)
+    re_deep_dive = re.compile(r'^##\s+3\.\s*(深度诊断发现|Deep Dive Findings)', re.IGNORECASE)
+    re_kaizen = re.compile(r'^##\s+4\.\s*(改善机会|Kaizen Opportunities)', re.IGNORECASE)
+    
+    for line in lines:
+        if re_overview.match(line):
+            current_section = "overview"
+            continue
+        elif re_actions.match(line):
+            current_section = "actions_header"
+            continue
+        elif re_deep_dive.match(line):
+            current_section = "deep_dive"
+            continue
+        elif re_kaizen.match(line):
+            current_section = "kaizen"
+            continue
+        elif line.strip().startswith("## "):
+            current_section = None
+            
+        if current_section == "overview":
+            sections["overview"] += line + "\n"
+        elif current_section == "deep_dive":
+            sections["deep_dive"] += line + "\n"
+        elif current_section == "kaizen":
+            sections["kaizen"] += line + "\n"
+        elif current_section == "actions_header":
+            # Collecting table lines
+            if line.strip().startswith("|"):
+                action_table_lines.append(line)
+            elif not line.strip() and action_table_lines:
+                # End of table
+                current_section = None
+                
+    # Parse action table
+    # Expected columns: 序号 | 动作描述 | 动素类别 | 左手状态 | 右手状态 | 预估耗时(s) | 增值/非增值 | 时间段
+    if len(action_table_lines) > 2: # Header + Separator + at least 1 row
+        # Skip header and separator
+        for row_line in action_table_lines[2:]:
+            parts = [p.strip() for p in row_line.split('|')]
+            if len(parts) < 9: # | c1 | c2 | ... | c8 | -> 10 parts (empty start/end)
+                continue
+            
+            # parts[0] is empty, parts[1] is index, etc.
+            try:
+                time_range = parts[8]
+                start_time = 0.0
+                end_time = 0.0
+                if "-" in time_range:
+                    t_parts = time_range.split("-")
+                    start_time = _parse_time_str(t_parts[0])
+                    end_time = _parse_time_str(t_parts[1])
+                
+                action = {
+                    "index": parts[1],
+                    "label": parts[2],
+                    "type": parts[3],
+                    "left_hand": parts[4],
+                    "right_hand": parts[5],
+                    "duration": parts[6],
+                    "value_added": parts[7],
+                    "time_range": parts[8],
+                    "start_time": start_time,
+                    "end_time": end_time
+                }
+                sections["actions"].append(action)
+            except Exception:
+                continue
+
+    # Clean up sections
+    sections["overview"] = sections["overview"].strip()
+    sections["deep_dive"] = sections["deep_dive"].strip()
+    sections["kaizen"] = sections["kaizen"].strip()
+    
+    return sections
+
+def _update_md_content(content: str, new_actions: List[Dict]) -> str:
+    """
+    Updates the action table in the Markdown content.
+    """
+    lines = content.splitlines()
+    new_lines = []
+    
+    re_actions = re.compile(r'^##\s+2\.\s*(详细动作分析表|Motion Breakdown)', re.IGNORECASE)
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        
+        if re_actions.match(line):
+            new_lines.append(line)
+            i += 1
+            # Look for table start
+            while i < len(lines):
+                l = lines[i]
+                new_lines.append(l)
+                if l.strip().startswith("|"):
+                    # Found header
+                    i += 1
+                    # Found separator
+                    if i < len(lines):
+                        new_lines.append(lines[i])
+                        i += 1
+                        
+                    # Now insert new rows
+                    for idx, act in enumerate(new_actions, 1):
+                        label = act.get('label', '')
+                        atype = act.get('type', '')
+                        left = act.get('left_hand', '')
+                        right = act.get('right_hand', '')
+                        duration = act.get('duration', '')
+                        val = act.get('value_added', '')
+                        trange = act.get('time_range', '')
+                        
+                        if 'start_time' in act and 'end_time' in act:
+                            try:
+                                s = float(act['start_time'])
+                                e = float(act['end_time'])
+                                d = max(0, e - s)
+                                duration = f"{d:.1f}"
+                                trange = f"{s:.2f} - {e:.2f}"
+                            except:
+                                pass
+                        
+                        row = f"| {idx} | {label} | {atype} | {left} | {right} | {duration} | {val} | {trange} |"
+                        new_lines.append(row)
+                    
+                    # Skip old rows
+                    while i < len(lines):
+                        next_l = lines[i]
+                        if not next_l.strip() or not next_l.strip().startswith("|"):
+                            break
+                        i += 1
+                    break
+                i += 1
+            continue
+        
+        new_lines.append(line)
+        i += 1
+        
+    return "\n".join(new_lines)
+
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def send_json(self, status: int, payload: Dict[str, object]) -> None:
@@ -882,6 +1074,24 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps({'error': 'File not found'}).encode('utf-8'))
                     return
 
+                # Handle MD file
+                if real_path.lower().endswith('.md'):
+                    with open(real_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    new_content = _update_md_content(content, new_actions)
+                    
+                    with open(real_path, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                        
+                    # Return success with updated parsed data
+                    parsed = _parse_md_content(new_content)
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'status': 'success', 'data': parsed}).encode('utf-8'))
+                    return
+
                 # Read existing file
                 with open(real_path, 'r', encoding='utf-8') as f:
                     file_data = json.load(f)
@@ -1144,9 +1354,9 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(400, {"error": "too_many_frames", "details": "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000"})
                     return
 
-                prompt_json_path = os.path.join('result', 'motor_12.15.00.40.json')
-                if not os.path.exists(prompt_json_path):
-                    self.send_json(500, {"error": "missing_prompt_template", "details": f"未找到 prompt 模板文件: {prompt_json_path}"})
+                prompt_path = os.path.join('data', 'prompt.md')
+                if not os.path.exists(prompt_path):
+                    self.send_json(500, {"error": "missing_prompt_template", "details": f"未找到 prompt 模板文件: {prompt_path}"})
                     return
 
                 try:
@@ -1196,6 +1406,11 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed_path = urllib.parse.urlparse(self.path)
         if parsed_path.path.startswith('/api/'):
+            if parsed_path.path == '/api/version':
+                version = get_latest_version()
+                self.send_json(200, {"version": version})
+                return
+
             if parsed_path.path == '/api/me':
                 user = self.require_auth()
                 if not user:
@@ -1297,111 +1512,145 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             if not user:
                 return
 
-        if parsed_path.path == '/api/list_videos':
-            # List videos in data/ folder
-            try:
-                files = [f for f in os.listdir('data') if f.endswith(('.mp4', '.mov', '.avi'))]
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'files': files}).encode('utf-8'))
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode('utf-8'))
+            if parsed_path.path == '/api/list_videos':
+                # List videos in data/ folder
+                try:
+                    files = [f for f in os.listdir('data') if f.endswith(('.mp4', '.mov', '.avi'))]
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'files': files}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(str(e).encode('utf-8'))
+                return
                 
-        elif parsed_path.path == '/api/list_results':
-             # List files in result/ folder
-            try:
-                files = []
-                if os.path.exists('result'):
-                    files = [f for f in os.listdir('result') if f.endswith(('.json', '.mp4'))]
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'files': files}).encode('utf-8'))
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode('utf-8'))
-        elif parsed_path.path == '/api/video_info':
-            try:
-                params = urllib.parse.parse_qs(parsed_path.query)
-                rel_path = (params.get('path') or [''])[0]
-                rel_path = rel_path.lstrip('/')
-                rel_path = os.path.normpath(rel_path)
-
-                if not rel_path or rel_path.startswith('..') or rel_path.startswith('/'):
-                    self.send_response(400)
+            if parsed_path.path == '/api/list_results':
+                 # List files in result/ folder
+                try:
+                    files = []
+                    if os.path.exists('result'):
+                        files = [f for f in os.listdir('result') if f.endswith(('.json', '.mp4', '.md'))]
+                    self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps({'error': 'invalid path'}).encode('utf-8'))
-                    return
+                    self.wfile.write(json.dumps({'files': files}).encode('utf-8'))
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(str(e).encode('utf-8'))
+                return
 
-                if not (rel_path.startswith('data/') or rel_path.startswith('result/')):
-                    self.send_response(403)
+            if parsed_path.path == '/api/result_details':
+                try:
+                    params = urllib.parse.parse_qs(parsed_path.query)
+                    rel_path = (params.get('path') or [''])[0]
+                    # Security checks
+                    rel_path = rel_path.lstrip('/')
+                    rel_path = os.path.normpath(rel_path)
+                    if not rel_path or rel_path.startswith('..') or rel_path.startswith('/') or not rel_path.startswith('result/'):
+                         self.send_json(400, {'error': 'invalid path'})
+                         return
+                    
+                    abs_path = os.path.join(os.getcwd(), rel_path)
+                    if not os.path.exists(abs_path):
+                         self.send_json(404, {'error': 'file not found'})
+                         return
+                         
+                    if abs_path.lower().endswith('.json'):
+                        with open(abs_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        self.send_json(200, data)
+                        return
+
+                    with open(abs_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        
+                    parsed = _parse_md_content(content)
+                    self.send_json(200, parsed)
+                except Exception as e:
+                    self.send_json(500, {'error': str(e)})
+                return
+            if parsed_path.path == '/api/video_info':
+                try:
+                    params = urllib.parse.parse_qs(parsed_path.query)
+                    rel_path = (params.get('path') or [''])[0]
+                    rel_path = rel_path.lstrip('/')
+                    rel_path = os.path.normpath(rel_path)
+
+                    if not rel_path or rel_path.startswith('..') or rel_path.startswith('/'):
+                        self.send_response(400)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'error': 'invalid path'}).encode('utf-8'))
+                        return
+
+                    if not (rel_path.startswith('data/') or rel_path.startswith('result/')):
+                        self.send_response(403)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'error': 'forbidden path'}).encode('utf-8'))
+                        return
+
+                    abs_path = os.path.join(os.getcwd(), rel_path)
+                    if not (os.path.exists(abs_path) and os.path.isfile(abs_path)):
+                        self.send_response(404)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'error': 'file not found'}).encode('utf-8'))
+                        return
+
+                    duration = None
+                    probe = subprocess.run(
+                        [
+                            'ffprobe',
+                            '-v',
+                            'error',
+                            '-show_entries',
+                            'format=duration',
+                            '-of',
+                            'default=noprint_wrappers=1:nokey=1',
+                            abs_path,
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if probe.returncode == 0:
+                        out = (probe.stdout or '').strip()
+                        if out:
+                            duration = float(out)
+
+                    if duration is None:
+                        try:
+                            import cv2
+
+                            cap = cv2.VideoCapture(abs_path)
+                            fps = cap.get(cv2.CAP_PROP_FPS) or 0
+                            frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+                            cap.release()
+                            if fps > 0 and frames > 0:
+                                duration = float(frames) / float(fps)
+                        except Exception:
+                            duration = None
+
+                    if duration is None:
+                        self.send_response(500)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'error': 'failed to read duration'}).encode('utf-8'))
+                        return
+
+                    self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps({'error': 'forbidden path'}).encode('utf-8'))
-                    return
-
-                abs_path = os.path.join(os.getcwd(), rel_path)
-                if not (os.path.exists(abs_path) and os.path.isfile(abs_path)):
-                    self.send_response(404)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'error': 'file not found'}).encode('utf-8'))
-                    return
-
-                duration = None
-                probe = subprocess.run(
-                    [
-                        'ffprobe',
-                        '-v',
-                        'error',
-                        '-show_entries',
-                        'format=duration',
-                        '-of',
-                        'default=noprint_wrappers=1:nokey=1',
-                        abs_path,
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                if probe.returncode == 0:
-                    out = (probe.stdout or '').strip()
-                    if out:
-                        duration = float(out)
-
-                if duration is None:
-                    try:
-                        import cv2
-
-                        cap = cv2.VideoCapture(abs_path)
-                        fps = cap.get(cv2.CAP_PROP_FPS) or 0
-                        frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-                        cap.release()
-                        if fps > 0 and frames > 0:
-                            duration = float(frames) / float(fps)
-                    except Exception:
-                        duration = None
-
-                if duration is None:
+                    self.wfile.write(json.dumps({'path': rel_path, 'duration': duration}).encode('utf-8'))
+                except Exception as e:
                     self.send_response(500)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps({'error': 'failed to read duration'}).encode('utf-8'))
-                    return
-
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'path': rel_path, 'duration': duration}).encode('utf-8'))
-            except Exception as e:
-                self.send_response(500)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+                    self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+                return
         else:
             if self.path == '/' or self.path == '/index.html':
                 self.path = '/web/index.html'
