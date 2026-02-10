@@ -17,6 +17,10 @@ import threading
 import sys
 import mysql.connector
 import random
+try:
+    import openai
+except ImportError:
+    openai = None
 
 # Global task state
 USER_TASKS = {}
@@ -155,7 +159,7 @@ def ensure_720p(video_path: str) -> None:
     except Exception as e:
         print(f"[ERR] ensure_720p exception: {e}")
 
-def background_analyze_task(username, video_path, model, fps, api_key):
+def background_analyze_task(username, video_path, model, fps, api_key, sop_content=None):
     task = USER_TASKS.get(username)
     if not task: return
     
@@ -182,8 +186,8 @@ def background_analyze_task(username, video_path, model, fps, api_key):
 
 
         timestamp = datetime.datetime.now().strftime("%d.%H.%M.%S")
-        json_filename = f"{base_name}_{timestamp}.json"
-        json_path = os.path.join('result', json_filename)
+        result_filename = f"{base_name}_{timestamp}.md"
+        result_path = os.path.join('result', result_filename)
         
         env = os.environ.copy()
         env.pop('GOOGLE_API_KEY', None)
@@ -202,22 +206,17 @@ def background_analyze_task(username, video_path, model, fps, api_key):
             python_exe, 'main.py',
             video_path,
             '--model', normalized_model,
-            '--out', json_path,
+            '--out', result_path,
             '--fps', str(fps),
             '--frames-dir', frames_dir,
             '--prompt-file', 'data/prompt.md',
         ]
-        output_video_filename = f"{base_name}_{timestamp}.mp4"
-        output_video_path = os.path.join('result', output_video_filename)
         
-        cmd_handle = [
-            python_exe, 'prehandle/handle_video.py',
-            video_path,
-            '--out', output_video_path,
-            '--json', json_path,
-            '--no-gui',
-            '--threshold', '0.5'
-        ]
+        if sop_content:
+            cmd_main.extend(['--sop-content', sop_content])
+
+        # handle_video.py execution removed as per user request (only keep md files)
+        output_video_path = None
         
         _set_task_progress(username, "analyze", 0, 0)
         _append_task_log(username, f"[INFO] Starting analysis for {video_path}\n")
@@ -231,25 +230,13 @@ def background_analyze_task(username, video_path, model, fps, api_key):
             universal_newlines=True,
             env=env
         )
-        proc_handle = subprocess.Popen(
-            cmd_handle,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
         
         analysis_stdout = ""
         analysis_stderr = ""
-        annotation_stdout = ""
-        annotation_stderr = ""
-        annotation_actions_ready = False
         
         import select
         fds = [
-            proc_main.stdout.fileno(), proc_main.stderr.fileno(),
-            proc_handle.stdout.fileno(), proc_handle.stderr.fileno()
+            proc_main.stdout.fileno(), proc_main.stderr.fileno()
         ]
         
         while fds:
@@ -298,46 +285,19 @@ def background_analyze_task(username, video_path, model, fps, api_key):
                         log(f"[ANALYSIS_ERR]{line}".encode('utf-8'))
                     else:
                         fds.remove(fd)
-                elif fd == proc_handle.stdout.fileno():
-                    line = proc_handle.stdout.readline()
-                    if line:
-                        annotation_stdout += line
-                        if "[ACTIONS_READY]" in line:
-                            annotation_actions_ready = True
-                        log(line.encode('utf-8'))
-                    else:
-                        fds.remove(fd)
-                elif fd == proc_handle.stderr.fileno():
-                    line = proc_handle.stderr.readline()
-                    if line:
-                        annotation_stderr += line
-                        log(f"[ANNOTATION_ERR]{line}".encode('utf-8'))
-                    else:
-                        fds.remove(fd)
             
-            if not fds or ((proc_main.poll() is not None) and (proc_handle.poll() is not None)):
+            if not fds or (proc_main.poll() is not None):
                 break
         
         status = 'success'
         error_details = None
-        if (proc_main.returncode or 0) != 0 or (proc_handle.returncode or 0) != 0:
+        if (proc_main.returncode or 0) != 0:
             status = 'partial'
-            err_parts = []
-            if (proc_main.returncode or 0) != 0:
-                err_parts.append('Gemini analysis failed')
-            if (proc_handle.returncode or 0) != 0:
-                err_parts.append('Video annotation failed')
-            error_details = '; '.join(err_parts)
-        
-        if (not annotation_actions_ready) and os.path.exists(json_path) and (proc_handle.returncode or 0) == 0:
-            retry = subprocess.run(cmd_handle, capture_output=True, text=True)
-            if retry.returncode == 0:
-                annotation_stdout = retry.stdout or annotation_stdout
-                annotation_stderr = retry.stderr or annotation_stderr
+            error_details = 'Gemini analysis failed'
         
         response = {
             'status': status,
-            'json_path': json_path,
+            'json_path': result_path, # Actually MD path now
             'video_path': output_video_path,
             'error': error_details,
             'logs': {
@@ -347,37 +307,20 @@ def background_analyze_task(username, video_path, model, fps, api_key):
                     'stderr': analysis_stderr
                 },
                 'annotation': {
-                    'command': ' '.join(cmd_handle),
-                    'stdout': annotation_stdout,
-                    'stderr': annotation_stderr
+                    'command': 'skipped',
+                    'stdout': '',
+                    'stderr': ''
                 }
             }
         }
 
-        # Check for MD file if JSON doesn't exist (for custom prompt output)
-        md_path = os.path.splitext(json_path)[0] + '.md'
-        if not os.path.exists(json_path) and os.path.exists(md_path):
-            json_path = md_path
-
-        if not os.path.exists(json_path):
-            recovered = _extract_last_result_payload(analysis_stdout)
-            if recovered is not None:
-                try:
-                    os.makedirs(os.path.dirname(json_path) or ".", exist_ok=True)
-                    with open(json_path, "w", encoding="utf-8") as f:
-                        json.dump(recovered, f, ensure_ascii=False, indent=2)
-                except Exception as e:
-                    with USER_TASKS_LOCK:
-                        task['status'] = 'failed'
-                        task['error_msg'] = f"result_json_write_failed: {e}"
-                        task['phase'] = 'failed'
-                    return
-            else:
-                with USER_TASKS_LOCK:
-                    task['status'] = 'failed'
-                    task['error_msg'] = "result_json_not_generated"
-                    task['phase'] = 'failed'
-                return
+        # Check for MD file existence
+        if not os.path.exists(result_path):
+             with USER_TASKS_LOCK:
+                task['status'] = 'failed'
+                task['error_msg'] = "result_not_generated_check_logs"
+                task['phase'] = 'failed'
+             return
 
         if (proc_main.returncode or 0) != 0:
             with USER_TASKS_LOCK:
@@ -601,6 +544,13 @@ def _parse_md_content(content: str) -> Dict[str, object]:
     lines = content.splitlines()
     current_section = None
     action_table_lines = []
+
+    # Check if content starts with table (for merged results without headers)
+    for line in lines:
+        if line.strip():
+            if line.strip().startswith('|'):
+                current_section = "actions_header"
+            break
     
     # Regex patterns for section headers
     re_overview = re.compile(r'^##\s+1\.\s*(工序概览|Overview)', re.IGNORECASE)
@@ -660,7 +610,7 @@ def _parse_md_content(content: str) -> Dict[str, object]:
                 action = {
                     "index": parts[1],
                     "label": parts[2],
-                    "type": parts[3],
+                    "sop": parts[3],
                     "left_hand": parts[4],
                     "right_hand": parts[5],
                     "duration": parts[6],
@@ -689,6 +639,53 @@ def _update_md_content(content: str, new_actions: List[Dict]) -> str:
     
     re_actions = re.compile(r'^##\s+2\.\s*(详细动作分析表|Motion Breakdown)', re.IGNORECASE)
     
+    # Check if content starts with table (for merged results without headers)
+    is_table_only = False
+    if not content.strip():
+        is_table_only = True
+    else:
+        for line in lines:
+            if line.strip():
+                if line.strip().startswith('|'):
+                    is_table_only = True
+                break
+            
+    if is_table_only:
+        # Just rewrite the whole table
+        new_lines.append("| 序号 | 动作描述 | SOP 操作步骤 | 左手状态 | 右手状态 | 预估耗时(s) | 增值/非增值 | 时间段 |")
+        new_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        for idx, act in enumerate(new_actions, 1):
+            label = act.get('label', '')
+            sop = act.get('sop', '') or act.get('type', '')
+            left = act.get('left_hand', '')
+            right = act.get('right_hand', '')
+            duration = act.get('duration', '')
+            val = act.get('value_added', '')
+            trange = act.get('time_range', '')
+            
+            if 'start_time' in act and 'end_time' in act:
+                try:
+                    s = float(act['start_time'])
+                    e = float(act['end_time'])
+                    d = max(0, e - s)
+                    duration = f"{d:.1f}"
+                    # Keep existing time format if possible, or format as needed
+                    # If the user wants HH:MM:SS, we should probably respect what's passed from frontend
+                    # But frontend usually passes raw seconds for start/end. 
+                    # Let's trust what frontend sends in 'time_range' if available, otherwise format.
+                    # Wait, frontend sends time_range string? 
+                    # Frontend btnSaveEdit constructs time_range: s.toFixed(2) + " - " + e.toFixed(2)
+                    # User wanted HH:MM:SS.
+                    # Let's use the helper _seconds_to_timestamp if available or reimplement it here.
+                    pass 
+                except:
+                    pass
+            
+            # Use trange from action if available (frontend should format it), else default
+            row = f"| {idx} | {label} | {sop} | {left} | {right} | {duration} | {val} | {trange} |"
+            new_lines.append(row)
+        return "\n".join(new_lines)
+
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -711,7 +708,7 @@ def _update_md_content(content: str, new_actions: List[Dict]) -> str:
                     # Now insert new rows
                     for idx, act in enumerate(new_actions, 1):
                         label = act.get('label', '')
-                        atype = act.get('type', '')
+                        sop = act.get('sop', '') or act.get('type', '')
                         left = act.get('left_hand', '')
                         right = act.get('right_hand', '')
                         duration = act.get('duration', '')
@@ -728,7 +725,7 @@ def _update_md_content(content: str, new_actions: List[Dict]) -> str:
                             except:
                                 pass
                         
-                        row = f"| {idx} | {label} | {atype} | {left} | {right} | {duration} | {val} | {trange} |"
+                        row = f"| {idx} | {label} | {sop} | {left} | {right} | {duration} | {val} | {trange} |"
                         new_lines.append(row)
                     
                     # Skip old rows
@@ -782,6 +779,128 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             if clean_path == '/web/index.html' or clean_path.startswith('/web/'):
                 self.send_header('Cache-Control', 'no-store')
         return super().end_headers()
+
+    def handle_sop_clips_info(self, parsed_path):
+        print(f"[DEBUG] Processing /api/sop_clips_info request from {self.client_address}")
+        try:
+            user = self.get_auth_user()
+            if not user:
+                print(f"[DEBUG] sop_clips_info: Auth failed")
+                self.send_json(401, {"error": "unauthorized"})
+                return
+
+            path_arg = ''
+            query = urllib.parse.parse_qs(parsed_path.query)
+            if 'path' in query:
+                path_arg = query['path'][0]
+
+            if not path_arg:
+                print(f"[DEBUG] sop_clips_info: Missing path")
+                self.send_json(400, {"error": "missing_path"})
+                return
+
+            if path_arg.startswith('/'):
+                path_arg = path_arg[1:]
+            real_file_path = os.path.join(os.getcwd(), path_arg)
+
+            base_dir = os.path.dirname(real_file_path)
+            file_name_no_ext = os.path.splitext(os.path.basename(real_file_path))[0]
+            sop_root = os.path.join(base_dir, file_name_no_ext)
+
+            print(f"[DEBUG] sop_clips_info: path_arg={path_arg}")
+            print(f"[DEBUG] sop_clips_info: sop_root={sop_root}")
+            print(f"[DEBUG] sop_clips_info: exists={os.path.exists(sop_root)}, isdir={os.path.isdir(sop_root)}")
+
+            if not os.path.exists(sop_root) or not os.path.isdir(sop_root):
+                self.send_json(200, {"exists": False})
+                return
+
+            groups = []
+            for entry in os.scandir(sop_root):
+                if entry.is_dir():
+                    sop_name = entry.name
+                    files = []
+                    for f in os.scandir(entry.path):
+                        if f.is_file() and f.name.lower().endswith('.mp4'):
+                            files.append(f.name)
+                    files.sort()
+                    if files:
+                        groups.append({
+                            "name": sop_name,
+                            "path": os.path.relpath(entry.path, os.getcwd()),
+                            "files": [{"name": fn, "url": f"/{os.path.relpath(os.path.join(entry.path, fn), os.getcwd())}"} for fn in files]
+                        })
+
+            groups.sort(key=lambda x: x['name'])
+            print(f"[DEBUG] sop_clips_info: found {len(groups)} groups")
+            if not groups:
+                print(f"[DEBUG] sop_clips_info: no valid groups found in {sop_root}")
+                self.send_json(200, {"exists": False})
+                return
+
+            self.send_json(200, {"exists": True, "root_path": os.path.relpath(sop_root, os.getcwd()), "groups": groups})
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] sop_clips_info CRASH: {e}")
+            traceback.print_exc()
+            try:
+                self.send_json(500, {"error": "internal_error", "details": str(e)})
+            except:
+                pass
+
+    def handle_download_folder(self, parsed_path):
+        user = self.get_auth_user()
+        if not user:
+            self.send_json(401, {"error": "unauthorized"})
+            return
+
+        path_arg = ''
+        query = urllib.parse.parse_qs(parsed_path.query)
+        if 'path' in query:
+            path_arg = query['path'][0]
+
+        if not path_arg:
+            self.send_json(400, {"error": "missing_path"})
+            return
+
+        if path_arg.startswith('/'):
+            path_arg = path_arg[1:]
+
+        real_path = os.path.join(os.getcwd(), path_arg)
+        result_dir = os.path.join(os.getcwd(), 'result')
+
+        if not os.path.commonpath([real_path, result_dir]) == result_dir:
+            self.send_json(403, {"error": "forbidden_path"})
+            return
+
+        if not os.path.exists(real_path) or not os.path.isdir(real_path):
+            self.send_json(404, {"error": "folder_not_found"})
+            return
+
+        try:
+            import zipfile
+            import io
+
+            mem_zip = io.BytesIO()
+
+            with zipfile.ZipFile(mem_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(real_path):
+                    for file in files:
+                        if file.lower().endswith(('.mp4', '.md')):
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, real_path)
+                            zf.write(file_path, arcname)
+
+            mem_zip.seek(0)
+            zip_filename = os.path.basename(real_path.rstrip('/')) + ".zip"
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/zip')
+            self.send_header('Content-Disposition', f'attachment; filename="{zip_filename}"')
+            self.send_header('Content-Length', str(len(mem_zip.getvalue())))
+            self.end_headers()
+            self.wfile.write(mem_zip.getvalue())
+        except Exception as e:
+            self.send_json(500, {"error": "download_failed", "details": str(e)})
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -944,7 +1063,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             email = (data.get('email') or '').strip() or None
             status = (data.get('status') or 'active').strip() or 'active'
             api_key = (data.get('api_key') or '').strip() or None
-            model = 'kimi-2.5'
+            model = (data.get('model') or 'kimi-2.5').strip()
             if not username or not password:
                 self.send_json(400, {"error": "missing_username_or_password"})
                 return
@@ -1032,7 +1151,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     params.append(normalized_key or None)
                 if model is not None:
                     sets.append("model=%s")
-                    params.append("kimi-2.5")
+                    params.append(str(model).strip())
                 if new_password:
                     sets.append("password_hash=%s")
                     params.append(hash_password(new_password))
@@ -1045,6 +1164,30 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(500, {"error": "db_error", "details": str(e)})
                 return
             self.send_json(200, {"status": "success"})
+            return
+
+        if parsed_path.path == '/api/sop_content':
+            user = self.require_auth()
+            if not user:
+                return
+            try:
+                # Always read/write SOP.md in data/ directory
+                sop_path = os.path.join(os.getcwd(), 'data', 'SOP.md')
+                
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+                new_content = data.get('content')
+                
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(sop_path), exist_ok=True)
+                
+                with open(sop_path, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                    
+                self.send_json(200, {"status": "success"})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
             return
 
         if parsed_path.path == '/api/update_result':
@@ -1184,6 +1327,215 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
 
+        elif parsed_path.path == '/api/merge_kaizen':
+            user = self.require_auth()
+            if not user:
+                return
+
+            content_length = int(self.headers.get('Content-Length', '0') or '0')
+            post_data = self.rfile.read(content_length)
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+            except Exception:
+                data = {}
+            
+            file_path = data.get('path')
+            if not file_path:
+                self.send_json(400, {"error": "missing_path"})
+                return
+            
+            # Validate path
+            clean_path = os.path.normpath(file_path)
+            if not clean_path.startswith('result/') or not clean_path.endswith('.md'):
+                 self.send_json(400, {"error": "invalid_path"})
+                 return
+            
+            # TODO: Implement Kaizen merge logic here
+            self.send_json(501, {"error": "not_implemented"})
+            return
+
+        if parsed_path.path == '/api/export_sop_clips':
+            user = self.require_auth()
+            if not user:
+                return
+
+            content_length = int(self.headers.get('Content-Length', '0') or '0')
+            post_data = self.rfile.read(content_length)
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+            except Exception:
+                data = {}
+            
+            file_path = data.get('path')
+            video_path = data.get('video_path')
+            
+            if not file_path or not video_path:
+                self.send_json(400, {"error": "missing_path_or_video"})
+                return
+
+            # Normalize paths
+            if file_path.startswith('/'): file_path = file_path[1:]
+            if video_path.startswith('/'): video_path = video_path[1:]
+            
+            real_file_path = os.path.join(os.getcwd(), file_path)
+            real_video_path = os.path.join(os.getcwd(), video_path)
+            
+            if not os.path.exists(real_file_path) or not os.path.exists(real_video_path):
+                self.send_json(404, {"error": "file_not_found"})
+                return
+
+            # Parse actions
+            actions = []
+            try:
+                if real_file_path.lower().endswith('.md'):
+                    with open(real_file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    parsed = _parse_md_content(content)
+                    actions = parsed.get('actions', [])
+                else:
+                    with open(real_file_path, 'r', encoding='utf-8') as f:
+                        json_data = json.load(f)
+                    if isinstance(json_data, dict):
+                        actions = json_data.get('actions', [])
+                        # Try other locations if not at root
+                        if not actions and 'model_output' in json_data:
+                            actions = json_data['model_output'].get('actions', [])
+            except Exception as e:
+                self.send_json(500, {"error": f"parse_error: {str(e)}"})
+                return
+
+            if not actions:
+                self.send_json(400, {"error": "no_actions_found"})
+                return
+
+            # Group actions by SOP step
+            sop_groups = []
+            if not actions:
+                pass
+            else:
+                current_sop = None
+                current_group = []
+                
+                for act in actions:
+                    sop_val = act.get('sop', '').strip()
+                    # If empty SOP, treat as "Unknown" or skip? 
+                    # User said "adjacent same SOP step". 
+                    # If SOP is empty, maybe it shouldn't be grouped or treated as "None".
+                    # Let's treat it as a value.
+                    
+                    if sop_val != current_sop:
+                        if current_group:
+                            sop_groups.append({'sop': current_sop, 'actions': current_group})
+                        current_sop = sop_val
+                        current_group = [act]
+                    else:
+                        current_group.append(act)
+                
+                if current_group:
+                    sop_groups.append({'sop': current_sop, 'actions': current_group})
+
+            # Create clips
+            export_count = 0
+            base_dir = os.path.dirname(real_file_path)
+            file_name_no_ext = os.path.splitext(os.path.basename(real_file_path))[0]
+            # Output dir: result/视频对应的md文件夹/SOP N文件夹
+            # "视频对应的md文件夹" -> This implies the folder where the MD file is, OR a folder named after the MD file?
+            # User said: "result/视频对应的md文件夹/SOP N文件夹内"
+            # If MD file is result/position1...md, maybe they mean result/position1.../SOP N/?
+            # Or result/position1..._folder/SOP N/?
+            # Let's assume result/{filename_without_ext}/SOP {sop}/
+            
+            output_root = os.path.join(base_dir, file_name_no_ext)
+            
+            try:
+                for group in sop_groups:
+                    sop_name = group['sop']
+                    if not sop_name:
+                        continue # Skip empty SOP steps if any
+                        
+                    group_actions = group['actions']
+                    if not group_actions:
+                        continue
+                        
+                    # Get start/end time
+                    # First action start, Last action end
+                    start_act = group_actions[0]
+                    end_act = group_actions[-1]
+                    
+                    try:
+                        s_time = float(start_act.get('start_time', 0))
+                        e_time = float(end_act.get('end_time', 0))
+                    except:
+                        continue # Skip if no valid time
+                        
+                    if e_time <= s_time:
+                        continue
+                        
+                    # Format filename
+                    def sec_to_str(sec):
+                        m, s = divmod(sec, 60)
+                        h, m = divmod(m, 60)
+                        return f"{int(h):02d}-{int(m):02d}-{int(s):02d}"
+
+                    s_str = sec_to_str(s_time)
+                    e_str = sec_to_str(e_time)
+                    
+                    # SOP folder name
+                    # Clean SOP name for folder
+                    safe_sop_name = "".join([c for c in sop_name if c.isalnum() or c in (' ', '-', '_')]).strip()
+                    if not safe_sop_name:
+                        safe_sop_name = "Unknown_SOP"
+                        
+                    sop_dir = os.path.join(output_root, safe_sop_name)
+                    os.makedirs(sop_dir, exist_ok=True)
+                    
+                    # Filename: SOP_n + 开始+结束时间.mp4
+                    # Assuming SOP_n is the SOP name
+                    filename = f"{safe_sop_name}_{s_str}_{e_str}.mp4"
+                    out_path = os.path.join(sop_dir, filename)
+                    
+                    # ffmpeg command
+                    # ffmpeg -y -ss {start} -i {input} -to {end} -c:v libx264 -c:a copy {output}
+                    # Note: -to with -ss before -i: -to is relative to 0? No, -to is position in output if -ss is input option?
+                    # "When used as an input option (before -i), limits the duration of data read from the input file."
+                    # "When used as an output option (before an output url), decodes but discards input until the timestamps reach position."
+                    # Best practice for cutting:
+                    # ffmpeg -ss {start} -i input -t {duration} ...
+                    duration = e_time - s_time
+                    
+                    # Save actions to video-named MD file
+                    # Reuse _update_md_content logic to format table
+                    md_content = _update_md_content("", group_actions)
+                    md_filename = f"{os.path.splitext(filename)[0]}.md"
+                    md_path = os.path.join(sop_dir, md_filename)
+                    with open(md_path, 'w', encoding='utf-8') as f:
+                        f.write(md_content)
+
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-ss", str(s_time),
+                        "-i", real_video_path,
+                        "-t", str(duration),
+                        "-c:v", "libx264",
+                        "-preset", "fast",
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac",
+                        out_path
+                    ]
+                    
+                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    if result.returncode != 0:
+                        print(f"FFmpeg error for {filename}: {result.stderr.decode('utf-8')}")
+                    else:
+                        export_count += 1
+                    
+                self.send_json(200, {"status": "success", "count": export_count, "output_dir": output_root})
+                
+            except Exception as e:
+                self.send_json(500, {"error": f"export_failed: {str(e)}"})
+            return
+
+
         elif parsed_path.path == '/api/upload':
             try:
                 filename = self.headers.get('X-Filename')
@@ -1225,7 +1577,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception:
                     data = {}
                 video_path = str(data.get('video_path') or '').strip()
-                fps_raw = data.get('fps', 1.0)
+                fps_raw = data.get('fps', 2.0)
                 try:
                     fps = float(fps_raw)
                     if fps <= 0:
@@ -1288,6 +1640,14 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 )
             except Exception as e:
                 self.send_json(500, {"error": "internal_error", "details": str(e)})
+
+        elif parsed_path.path == '/api/sop_clips_info':
+            return self.handle_sop_clips_info(parsed_path)
+
+
+        elif parsed_path.path == '/api/download_folder':
+            return self.handle_download_folder(parsed_path)
+                
         elif parsed_path.path == '/api/analyze':
             acquired = ANALYZE_SEMAPHORE.acquire(blocking=False)
             if not acquired:
@@ -1307,23 +1667,35 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 text_model = str(raw_model).strip() if raw_model is not None else ""
                 model = 'kimi-2.5'
                 
-                fps_raw = data.get('fps', 1.0)
+                fps_raw = data.get('fps', 2.0)
                 api_key = None
+                user_model = None
                 username = user.get("username") if isinstance(user, dict) else None
                 if username:
                     try:
                         conn = get_db_connection(use_database=True)
                         cursor = conn.cursor()
-                        cursor.execute("SELECT api_key FROM users WHERE username=%s", (username,))
+                        cursor.execute("SELECT api_key, model FROM users WHERE username=%s", (username,))
                         row = cursor.fetchone()
                         cursor.close()
                         conn.close()
-                        if row and row[0]:
+                        if row:
                             api_key = str(row[0]).strip() or None
+                            if row[1]:
+                                user_model = str(row[1]).strip()
                     except Exception as e:
                         self.send_json(500, {"error": "db_error", "details": str(e)})
                         return
 
+                # Determine model to use
+                # Priority: request param > user preference > default
+                if text_model:
+                    model = text_model
+                elif user_model:
+                    model = user_model
+                else:
+                    model = 'kimi-2.5'
+                
                 try:
                     fps = float(fps_raw)
                     if fps != fps or fps < 0:
@@ -1359,6 +1731,16 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(500, {"error": "missing_prompt_template", "details": f"未找到 prompt 模板文件: {prompt_path}"})
                     return
 
+                # Check for SOP.md and read it if exists
+                sop_path = os.path.join('data', 'SOP.md')
+                sop_content = ""
+                if os.path.exists(sop_path):
+                    try:
+                        with open(sop_path, 'r', encoding='utf-8') as f:
+                            sop_content = f.read()
+                    except Exception as e:
+                        print(f"Warning: Failed to read SOP.md: {e}")
+
                 try:
                     # Check if task already running
                     with USER_TASKS_LOCK:
@@ -1381,7 +1763,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     # Start background thread
                     t = threading.Thread(
                         target=background_analyze_task,
-                        args=(username, video_path, model, fps, api_key),
+                        args=(username, video_path, model, fps, api_key, sop_content),
                         daemon=True
                     )
                     t.start()
@@ -1409,6 +1791,22 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             if parsed_path.path == '/api/version':
                 version = get_latest_version()
                 self.send_json(200, {"version": version})
+                return
+
+            if parsed_path.path == '/api/sop_content':
+                user = self.require_auth()
+                if not user: return
+                
+                try:
+                    sop_path = os.path.join(os.getcwd(), 'data', 'SOP.md')
+                    if os.path.exists(sop_path):
+                        with open(sop_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    else:
+                        content = ""
+                    self.send_json(200, {"content": content})
+                except Exception as e:
+                    self.send_json(500, {"error": str(e)})
                 return
 
             if parsed_path.path == '/api/me':
@@ -1507,6 +1905,12 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     
                 self.send_json(200, response)
                 return
+
+            if parsed_path.path == '/api/sop_clips_info':
+                return self.handle_sop_clips_info(parsed_path)
+
+            if parsed_path.path == '/api/download_folder':
+                return self.handle_download_folder(parsed_path)
 
             user = self.require_auth()
             if not user:
@@ -1651,6 +2055,8 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
                 return
+            self.send_json(404, {"error": "not_found"})
+            return
         else:
             if self.path == '/' or self.path == '/index.html':
                 self.path = '/web/index.html'

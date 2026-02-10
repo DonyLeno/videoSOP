@@ -248,6 +248,58 @@
         background: var(--scrollbar-hover);
       }
 
+      /* SOP View Modal Specifics */
+      .sop-groups {
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      .sop-group {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 12px;
+        background: var(--surface-5);
+      }
+      .sop-group-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: var(--surface-4);
+        border-bottom: 1px solid var(--border);
+        font-weight: bold;
+      }
+      .sop-files {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+        padding: 10px;
+      }
+      .sop-file-item {
+        background: var(--surface-1);
+        padding: 8px;
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        border: 1px solid var(--border);
+      }
+      .sop-file-name {
+        font-size: 12px;
+        word-break: break-all;
+        margin-bottom: 4px;
+      }
+      .sop-video-preview {
+        width: 100%;
+        height: 120px;
+        background: #000;
+        border-radius: 4px;
+        margin-bottom: 4px;
+      }
+      .sop-file-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
       /* Components */
       .topbar {
         display: flex;
@@ -321,7 +373,7 @@
       /* Result Review Specifics */
       .review-layout {
         display: grid;
-        grid-template-columns: 1.2fr 0.8fr;
+        grid-template-columns: 1fr 2fr;
         gap: 20px;
         /* flex: 1; Removed to allow natural height */
         /* min-height: 0; Removed */
@@ -409,15 +461,39 @@
         flex-direction: column;
         gap: 8px;
       }
+      .actions-list-header {
+        display: grid;
+        grid-template-columns: 1.5fr 1.5fr 1fr 1fr 0.8fr 1.2fr;
+        gap: 8px;
+        padding: 8px 10px;
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: bold;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 8px;
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+        z-index: 10;
+      }
       .action-item {
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: 1.5fr 1.5fr 1fr 1fr 0.8fr 1.2fr;
         gap: 8px;
         padding: 10px;
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: 8px;
         background: var(--surface-5);
         cursor: pointer;
+        align-items: center;
+        font-size: 13px;
+        color: var(--text);
+      }
+      .col-content {
+        overflow: hidden;
+        /* text-overflow: ellipsis; */
+        /* white-space: nowrap; */
+        word-wrap: break-word;
       }
       .action-item:hover {
         background: var(--surface-4);
@@ -470,6 +546,21 @@
       }
 
       /* Modal */
+      .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        z-index: 2000;
+        justify-content: center;
+        align-items: center;
+      }
+      .modal.active {
+        display: flex;
+      }
       .modal-overlay {
         display: none;
         position: fixed;
@@ -710,6 +801,7 @@
         align-items: center;
         justify-content: center;
         padding: 32px;
+        z-index: 3000;
       }
       body.login-active .login-page {
         display: flex;
@@ -854,6 +946,27 @@
       </div>
     </div>
 
+    <!-- SOP View Modal -->
+    <div id="sopViewModal" class="modal">
+      <div class="modal-content" style="max-width: 900px; width: 90%;">
+        <div class="modal-header">
+          <div class="modal-title">SOP 视频片段</div>
+          <div style="flex: 1;"></div>
+          <a id="btnDownloadAllSop" class="btn" style="margin-right: 10px; display: none; padding: 6px 12px; font-size: 13px;" target="_blank">下载全部打包</a>
+          <button class="btn" onclick="document.getElementById('sopViewModal').classList.remove('active')">关闭</button>
+        </div>
+        <div class="modal-body">
+            <div id="sopViewLoading" style="text-align: center; padding: 20px;">加载中...</div>
+            <div id="sopViewContent" class="sop-groups" style="display: none;">
+                <!-- Populated by JS -->
+            </div>
+            <div id="sopViewEmpty" style="display: none; text-align: center; padding: 20px;">
+                暂无 SOP 视频片段，请先导出。
+            </div>
+        </div>
+      </div>
+    </div>
+
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
     <div class="app-shell" id="appShell">
       <div class="sidebar">
@@ -889,9 +1002,9 @@
         <div class="panel" style="max-width: 600px; margin: 0 auto; width: 100%;">
           <div class="panel-header">新建任务</div>
           <div class="panel-body">
-            <div class="form-group">
+            <div class="form-group" style="display: none;">
               <label class="form-label">FPS (每秒采样帧数)</label>
-              <input type="number" id="detectFps" class="form-control" value="1.0" step="0.1" min="0.1" max="30">
+              <input type="number" id="detectFps" class="form-control" value="2.0" step="0.1" min="0.1" max="30">
             </div>
 
             <div class="form-group">
@@ -919,6 +1032,10 @@
                 </div>
                 <div id="frameProgressText" style="margin-top: 4px; font-size: 11px; color: var(--muted);"></div>
               </div>
+            </div>
+            
+            <div class="form-group">
+                <button id="btnShowSop" class="btn" style="width: 100%; margin-bottom: 12px; background: var(--surface-3); color: var(--text); border-color: var(--border);">预设 SOP Steps</button>
             </div>
             
             <div class="form-group" style="display: none;">
@@ -1019,16 +1136,24 @@
           <div class="panel">
             <div class="panel-header">
               <div>Actions <span class="pill" id="actionCount">0</span></div>
-              <div class="pill" id="activeAction">-</div>
+              <button id="btnExportSopClips" class="btn" style="padding: 2px 8px; font-size: 12px; background: var(--surface-3); border-color: var(--border);">导出SOP视频片段</button>
             </div>
             <div class="panel-body actions-panel-body">
+              <div class="actions-list-header">
+                <div>动作描述</div>
+                <div>SOP 操作步骤</div>
+                <div>左手状态</div>
+                <div>右手状态</div>
+                <div>增值/非增值</div>
+                <div>时间段</div>
+              </div>
               <div id="actionsList" class="actions-list"></div>
             </div>
           </div>
         </div>
 
         <!-- Legacy Stats View (JSON) -->
-        <div id="legacyStatsView">
+        <div id="legacyStatsView" style="display: none;">
           <div class="stats-grid">
              <div class="stat-card">
                <div class="stat-title">动作总数</div>
@@ -1072,7 +1197,10 @@
                 <div class="panel-body" id="mdDeepDive" style="white-space: pre-wrap; line-height: 1.6;"></div>
             </div>
             <div class="panel">
-                <div class="panel-header">改善机会 (Kaizen Opportunities)</div>
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>改善机会 (Kaizen Opportunities)</span>
+                    <button id="btnMergeKaizen" class="btn" style="font-size: 12px; padding: 4px 8px;">合并</button>
+                </div>
                 <div class="panel-body" id="mdKaizen" style="white-space: pre-wrap; line-height: 1.6;"></div>
             </div>
         </div>
@@ -1236,6 +1364,8 @@
           <label>模型</label>
           <select id="userFormModel" class="modal-input">
             <option value="kimi-2.5" selected>GenieviewK2.5 (长文本/视觉增强)</option>
+            <option value="gemini2.5flash">Genie 2.5 Flash</option>
+            <option value="gemini3flash">Genie 3 Flash</option>
           </select>
         </div>
         <div class="modal-form-group">
@@ -1270,8 +1400,8 @@
 
         <div class="modal-row" style="display: flex; gap: 10px;">
              <div class="modal-form-group" style="flex: 1;">
-                <label>动素类别</label>
-                <input type="text" id="editType" class="modal-input">
+                <label>SOP 操作步骤</label>
+                <input type="text" id="editSop" class="modal-input">
             </div>
             <div class="modal-form-group" style="flex: 1;">
                 <label>增值/非增值</label>
@@ -1331,6 +1461,17 @@
       </div>
     </div>
 
+    <div id="sopModal" class="modal-overlay">
+      <div class="modal-content" style="width: 800px; max-width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-header">预设 SOP Steps</div>
+        <textarea id="sopContent" style="flex: 1; min-height: 400px; margin-bottom: 20px; font-family: monospace; font-size: 14px; padding: 10px; background: var(--surface-3); color: var(--text); border: 1px solid var(--border); border-radius: 8px; resize: none;"></textarea>
+        <div class="modal-actions">
+          <button class="btn-modal btn-cancel" id="btnCancelSop">取消</button>
+          <button class="btn-modal btn-save" id="btnSaveSop">保存</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       function brandReplace(text) {
         return String(text).replace(/gemini/gi, 'genieview');
@@ -1370,6 +1511,11 @@
 
       function setLoginActive(active) {
         document.body.classList.toggle('login-active', Boolean(active));
+        if (active) {
+          // Close all modals when showing login page
+          document.querySelectorAll('.modal').forEach(el => el.classList.remove('active'));
+          document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('open'));
+        }
       }
 
       function getThemeColor(name, fallback) {
@@ -1660,6 +1806,101 @@
         if (tabId === 'users') loadUserList();
         if (tabId === 'settings') fetchVersion();
         setSidebarDrawerOpen(false);
+      }
+
+      async function openSopViewModal(jsonPath) {
+        const modal = document.getElementById('sopViewModal');
+        const loading = document.getElementById('sopViewLoading');
+        const content = document.getElementById('sopViewContent');
+        const empty = document.getElementById('sopViewEmpty');
+        const btnDownloadAll = document.getElementById('btnDownloadAllSop');
+        
+        modal.classList.add('active');
+        loading.style.display = 'block';
+        content.style.display = 'none';
+        empty.style.display = 'none';
+        if (btnDownloadAll) btnDownloadAll.style.display = 'none';
+        
+        try {
+            const res = await authFetch(`/api/sop_clips_info?path=${encodeURIComponent(jsonPath)}`);
+            if (res.ok) {
+                const data = await res.json();
+                loading.style.display = 'none';
+                
+                if (data.exists && data.groups && data.groups.length > 0) {
+                    content.innerHTML = '';
+                    content.style.display = 'block';
+                    
+                    if (btnDownloadAll && data.root_path) {
+                        btnDownloadAll.href = `/api/download_folder?path=${encodeURIComponent(data.root_path)}`;
+                        btnDownloadAll.style.display = 'inline-flex';
+                    }
+                    
+                    data.groups.forEach(group => {
+                        const groupEl = document.createElement('div');
+                        groupEl.className = 'sop-group';
+                        
+                        // Header with download folder button
+                        const header = document.createElement('div');
+                        header.className = 'sop-group-header';
+                        header.innerHTML = `
+                            <span>${group.name} (${group.files.length})</span>
+                            <a href="/api/download_folder?path=${encodeURIComponent(group.path)}" class="btn" style="padding: 4px 8px; font-size: 12px;" target="_blank">下载文件夹</a>
+                        `;
+                        groupEl.appendChild(header);
+                        
+                        const filesContainer = document.createElement('div');
+                        filesContainer.className = 'sop-files';
+                        
+                        group.files.forEach(file => {
+                            const fileEl = document.createElement('div');
+                            fileEl.className = 'sop-file-item';
+                            
+                            const video = document.createElement('video');
+                            video.className = 'sop-video-preview';
+                            video.controls = true;
+                            video.preload = 'metadata'; // Load metadata to show duration etc.
+                            video.src = file.url;
+                            
+                            const name = document.createElement('div');
+                            name.className = 'sop-file-name';
+                            name.textContent = file.name;
+                            name.title = file.name;
+                            
+                            const actions = document.createElement('div');
+                            actions.className = 'sop-file-actions';
+                            const dlLink = document.createElement('a');
+                            dlLink.href = file.url;
+                            dlLink.download = file.name;
+                            dlLink.className = 'btn';
+                            dlLink.style.padding = '2px 6px';
+                            dlLink.style.fontSize = '11px';
+                            dlLink.textContent = '下载';
+                            actions.appendChild(dlLink);
+                            
+                            fileEl.appendChild(video);
+                            fileEl.appendChild(name);
+                            fileEl.appendChild(actions);
+                            filesContainer.appendChild(fileEl);
+                        });
+                        
+                        groupEl.appendChild(filesContainer);
+                        content.appendChild(groupEl);
+                    });
+                } else {
+                    empty.style.display = 'block';
+                    empty.textContent = '未找到 SOP 视频片段，请先点击导出。';
+                }
+            } else {
+                loading.style.display = 'none';
+                empty.style.display = 'block';
+                empty.textContent = '加载失败';
+            }
+        } catch (e) {
+            loading.style.display = 'none';
+            empty.style.display = 'block';
+            empty.textContent = '加载出错: ' + e.message;
+        }
       }
 
       function formatBytes(bytes) {
@@ -2376,7 +2617,7 @@
       const elActions = document.getElementById('actionsList');
       const elNowPlaying = document.getElementById('nowPlaying');
       const elActionCount = document.getElementById('actionCount');
-      const elActiveAction = document.getElementById('activeAction');
+      const elActiveAction = document.getElementById('activeAction'); // May be null now
       
       let currentActions = [];
       let currentActionEls = [];
@@ -2405,8 +2646,14 @@
             else if (f.endsWith('.mp4')) vidSel.appendChild(opt.cloneNode(true));
           });
           
-          // Restore if still exists
-          if (oldRes) resSel.value = oldRes;
+          if (oldRes) {
+              resSel.value = oldRes;
+              currentJsonPath = oldRes;
+              setTimeout(() => {
+                  console.log('Restoring previous selection:', currentJsonPath);
+                  updateExportButtonState();
+              }, 500);
+          }
           if (oldVid) vidSel.value = oldVid;
 
         } catch (e) {
@@ -2466,6 +2713,19 @@
           resSel.dispatchEvent(new Event('change'));
         }
       }
+      
+      document.getElementById('reviewResultSelect').addEventListener('change', async (e) => {
+        if (!e.target.value) return;
+        currentJsonPath = e.target.value;
+        try {
+            await loadResultDetail(currentJsonPath);
+        } catch (err) {
+            console.error('Load detail failed:', err);
+        }
+        
+        // Update export button state when result changes
+        updateExportButtonState();
+      });
 
       document.getElementById('reviewVideoSelect').addEventListener('change', (e) => {
         if (e.target.value) {
@@ -2476,8 +2736,61 @@
         }
       });
 
+      // SOP Logic
+      const btnShowSop = document.getElementById('btnShowSop');
+      const sopModal = document.getElementById('sopModal');
+      const sopContent = document.getElementById('sopContent');
+      const btnCancelSop = document.getElementById('btnCancelSop');
+      const btnSaveSop = document.getElementById('btnSaveSop');
+
+      if (btnShowSop) {
+        btnShowSop.onclick = async () => {
+          try {
+            const res = await authFetch('/api/sop_content');
+            if (res.ok) {
+              const data = await res.json();
+              sopContent.value = data.content || '';
+              sopModal.classList.add('open');
+            } else {
+              notify('无法加载 SOP 内容');
+            }
+          } catch (e) {
+            console.error(e);
+            notify('加载 SOP 内容失败');
+          }
+        };
+      }
+
+      if (btnCancelSop) {
+        btnCancelSop.onclick = () => {
+          sopModal.classList.remove('open');
+        };
+      }
+
+      if (btnSaveSop) {
+        btnSaveSop.onclick = async () => {
+          const content = sopContent.value;
+          try {
+            const res = await authFetch('/api/sop_content', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content })
+            });
+            if (res.ok) {
+              notify('SOP 内容已保存');
+              sopModal.classList.remove('open');
+            } else {
+              notify('保存 SOP 内容失败');
+            }
+          } catch (e) {
+            console.error(e);
+            notify('保存 SOP 内容失败: ' + e.message);
+          }
+        };
+      }
+
       function renderMdView(data) {
-        document.getElementById('mdResultView').style.display = 'flex';
+        document.getElementById('mdResultView').style.display = 'none';
         document.getElementById('legacyStatsView').style.display = 'none';
 
         document.getElementById('mdOverview').innerText = data.overview || "（无内容）";
@@ -2485,9 +2798,43 @@
         document.getElementById('mdKaizen').innerText = data.kaizen || "（无内容）";
       }
 
+      document.getElementById('btnMergeKaizen').addEventListener('click', async () => {
+        if (!currentJsonPath) return;
+        
+        const btn = document.getElementById('btnMergeKaizen');
+        const originalText = btn.textContent;
+        btn.textContent = '合并中...';
+        btn.disabled = true;
+
+        try {
+            const res = await authFetch('/api/merge_kaizen', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentJsonPath })
+            });
+            
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Unknown error');
+            }
+            
+            notify('合并成功，正在刷新...');
+            
+            // Reload the current result
+            const event = new Event('change');
+            document.getElementById('reviewResultSelect').dispatchEvent(event);
+
+        } catch (e) {
+            notify('合并失败: ' + e.message);
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
+      });
+
       function renderLegacyView() {
         document.getElementById('mdResultView').style.display = 'none';
-        document.getElementById('legacyStatsView').style.display = 'block';
+        document.getElementById('legacyStatsView').style.display = 'none';
       }
 
       document.getElementById('reviewResultSelect').addEventListener('change', async (e) => {
@@ -2552,18 +2899,44 @@
         elActionCount.textContent = actions.length;
         
         actions.forEach((act, idx) => {
+            if (!act) return;
             const div = document.createElement('div');
             div.className = 'action-item';
             div.dataset.index = String(idx);
+
+            let allPropsHtml = '';
+            try {
+                for (const key in act) {
+                    if (Object.prototype.hasOwnProperty.call(act, key)) {
+                         let val = act[key];
+                         if (typeof val === 'object' && val !== null) {
+                             try { val = JSON.stringify(val); } catch(e){ val = '[Object]'; }
+                         }
+                         // Escape HTML special chars in val to prevent breakage
+                         const safeVal = String(val)
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;")
+                            .replace(/"/g, "&quot;")
+                            .replace(/'/g, "&#039;");
+                            
+                         allPropsHtml += `<div style="display: flex; gap: 6px; margin-bottom: 2px;"><span style="color: var(--accent); min-width: 90px; flex-shrink: 0;">${key}:</span> <span style="word-break: break-all;">${safeVal}</span></div>`;
+                    }
+                }
+            } catch (err) {
+                console.error("Error rendering action details", err);
+            }
+
             div.innerHTML = `
-                <div class="action-label">
-                    <strong>${act.label}</strong>
-                    <div style="font-size:10px; opacity:0.7">${act.description || ''}</div>
+                <div class="col-content" title="${act.label || ''}\n${act.description || ''}">
+                    <strong>${act.label || 'Unknown'}</strong>
+                    ${act.description ? `<div style="font-size:10px; opacity:0.7;">${act.description}</div>` : ''}
                 </div>
-                <div class="action-meta">
-                    <div>${act.start_time}s - ${act.end_time}s</div>
-                    <div style="font-size:11px; color:var(--primary);">${act.value_added || (act.confidence ? Math.round(act.confidence*100)+'%' : '')}</div>
-                </div>
+                <div class="col-content" title="${act.sop || act.type || ''}">${act.sop || act.type || '-'}</div>
+                <div class="col-content" title="${act.left_hand || ''}">${act.left_hand || '-'}</div>
+                <div class="col-content" title="${act.right_hand || ''}">${act.right_hand || '-'}</div>
+                <div class="col-content" title="${act.value_added || ''}">${act.value_added || '-'}</div>
+                <div class="col-content" title="${act.time_range || ''}">${act.time_range || (act.start_time + ' - ' + act.end_time)}</div>
             `;
             div.onclick = () => {
                 elVideo.currentTime = parseFloat(act.start_time);
@@ -2771,9 +3144,9 @@
           if (scrollOnChange && found !== activeIndex) {
             currentActionEls[found].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           }
-          elActiveAction.textContent = currentActions[found]?.label || "-";
+          if (elActiveAction) elActiveAction.textContent = currentActions[found]?.label || "-";
         } else {
-          elActiveAction.textContent = "-";
+          if (elActiveAction) elActiveAction.textContent = "-";
         }
 
         activeIndex = found;
@@ -2783,6 +3156,133 @@
         syncActiveAction(true);
       });
       
+      const btnExportSopClips = document.getElementById('btnExportSopClips');
+      
+      async function updateExportButtonState() {
+          if (!btnExportSopClips || !currentJsonPath) {
+              console.log('updateExportButtonState skipped: missing btn or path', { btn: !!btnExportSopClips, path: currentJsonPath });
+              return;
+          }
+          
+          try {
+             console.log('Checking SOP info for:', currentJsonPath);
+             const res = await authFetch(`/api/sop_clips_info?path=${encodeURIComponent(currentJsonPath)}&t=${Date.now()}`);
+             if (res.ok) {
+                 const data = await res.json();
+                 console.log('SOP info data:', data);
+                 if (data.exists && data.groups && data.groups.length > 0) {
+                     console.log('SOP exists, switching to download mode');
+                     btnExportSopClips.textContent = '下载 SOP 视频片段';
+                     btnExportSopClips.dataset.mode = 'download';
+                     btnExportSopClips.dataset.rootPath = data.root_path || '';
+                 } else {
+                     console.log('SOP not found, switching to export mode');
+                     btnExportSopClips.textContent = '导出 SOP 视频片段';
+                     btnExportSopClips.dataset.mode = 'export';
+                     delete btnExportSopClips.dataset.rootPath;
+                 }
+             } else {
+                 console.error('SOP info response not ok:', res.status);
+             }
+          } catch(e) {
+              console.error('Check SOP info failed:', e);
+              if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
+                  console.log('Network error, retrying check in 2s...');
+                  setTimeout(updateExportButtonState, 2000);
+              }
+          }
+      }
+
+      if (btnExportSopClips) {
+        btnExportSopClips.onclick = async () => {
+           if (!currentJsonPath) {
+             notify('请先选择一个结果文件');
+             return;
+           }
+           
+           const oldText = btnExportSopClips.textContent;
+           btnExportSopClips.textContent = '检查状态...';
+           await updateExportButtonState();
+           
+           if (btnExportSopClips.dataset.mode === 'download') {
+               const rootPath = btnExportSopClips.dataset.rootPath;
+               if (rootPath) {
+                  try {
+                      const url = `/api/download_folder?path=${encodeURIComponent(rootPath)}`;
+                      const res = await authFetch(url);
+                      if (!res.ok) {
+                          notify('下载失败: ' + res.status);
+                          btnExportSopClips.textContent = oldText;
+                          return;
+                      }
+                      const blob = await res.blob();
+                      const name = rootPath.split('/').filter(Boolean).pop() || 'sop';
+                      const a = document.createElement('a');
+                      const objectUrl = URL.createObjectURL(blob);
+                      a.href = objectUrl;
+                      a.download = `${name}.zip`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(objectUrl);
+                  } catch (e) {
+                      console.error(e);
+                      notify('下载失败: ' + e.message);
+                  }
+               } else {
+                   notify('无法获取下载路径，正在刷新状态...');
+                   await updateExportButtonState();
+               }
+               btnExportSopClips.textContent = oldText;
+               return;
+           }
+           
+           if (btnExportSopClips.dataset.mode === 'view') {
+               openSopViewModal(currentJsonPath);
+               btnExportSopClips.textContent = oldText;
+               return;
+           }
+
+           const videoPath = document.getElementById('reviewVideoSelect').value;
+           if (!videoPath) {
+              notify('请先选择一个视频文件');
+              btnExportSopClips.textContent = oldText;
+              return;
+           }
+
+           const originalText = '导出 SOP 视频片段';
+           btnExportSopClips.textContent = '导出中...';
+           btnExportSopClips.disabled = true;
+
+           try {
+             const res = await authFetch('/api/export_sop_clips', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    path: currentJsonPath,
+                    video_path: videoPath
+                })
+             });
+             const data = await res.json();
+             if (res.ok) {
+                notify(`导出成功！共生成 ${data.count} 个片段`);
+                // Update button to View mode
+                updateExportButtonState();
+             } else {
+                notify('导出失败: ' + (data.error || 'Unknown error'));
+             }
+           } catch (e) {
+             console.error(e);
+             notify('导出失败: ' + e.message);
+           } finally {
+             if (btnExportSopClips.dataset.mode !== 'view') {
+                 btnExportSopClips.textContent = originalText;
+             }
+             btnExportSopClips.disabled = false;
+           }
+        };
+      }
+
       // --- Context Menu & Edit Logic ---
       const elContextMenu = document.getElementById('contextMenu');
       const elEditModal = document.getElementById('editModal');
@@ -2855,7 +3355,7 @@
         
         document.getElementById('editIndex').value = act.index || (editingActionIndex + 1);
         document.getElementById('editLabel').value = act.label || '';
-        document.getElementById('editType').value = act.type || '';
+        document.getElementById('editSop').value = act.sop || act.type || '';
         document.getElementById('editValueAdded').value = act.value_added || '';
         document.getElementById('editLeftHand').value = act.left_hand || '';
         document.getElementById('editRightHand').value = act.right_hand || '';
@@ -2879,7 +3379,8 @@
         // Update local data
         const act = currentActions[editingActionIndex];
         act.label = document.getElementById('editLabel').value;
-        act.type = document.getElementById('editType').value;
+        act.sop = document.getElementById('editSop').value;
+        act.type = act.sop; // Sync type
         act.value_added = document.getElementById('editValueAdded').value;
         act.left_hand = document.getElementById('editLeftHand').value;
         act.right_hand = document.getElementById('editRightHand').value;
@@ -2891,7 +3392,14 @@
         
         const d = Math.max(0, e - s);
         act.duration = d.toFixed(1);
-        act.time_range = s.toFixed(2) + " - " + e.toFixed(2);
+        
+        const fmt = (sec) => {
+             const h = Math.floor(sec / 3600);
+             const m = Math.floor((sec % 3600) / 60);
+             const s_int = Math.floor(sec % 60);
+             return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s_int).padStart(2, '0')}`;
+        };
+        act.time_range = fmt(s) + " - " + fmt(e);
         
         // Close modal
         if (elEditModal) elEditModal.classList.remove('open');
