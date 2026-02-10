@@ -1560,7 +1560,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                         bytes_read += len(chunk)
                 
                 # Compress/Resize if needed
-                ensure_720p(save_path)
+                # ensure_720p(save_path) - moved to extract_frames to avoid upload timeout
 
                 self.send_json(200, {"status": "success", "path": save_path})
             except Exception as e:
@@ -1592,6 +1592,10 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 if not os.path.exists(video_path):
                     self.send_json(404, {"error": "video_not_found", "path": video_path})
                     return
+                
+                # Compress/Resize here to avoid upload timeout
+                ensure_720p(video_path)
+
                 try:
                     import cv2  # type: ignore
                 except Exception:
