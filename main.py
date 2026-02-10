@@ -249,10 +249,14 @@ def _generate_content_with_retry(
     raise last_err if last_err is not None else RuntimeError("GenAI request failed")
 
 
-def _normalize_kimi_model_name(model: str) -> str:
+def _normalize_model_name(model: str) -> str:
     text = str(model or "").strip()
     if text in ("kimi-2.5", "GenieviewK2.5", "genieviewk2.5", "genieview-k2.5"):
         return "kimi-k2.5"
+    if text == "gemini2.5flash":
+        return "gemini-1.5-flash"
+    if text == "gemini3flash":
+        return "gemini-2.0-flash"
     return text or model
 
 
@@ -513,6 +517,7 @@ def extract_frames(video_path: str, fps: float) -> List[Any]:
             # Interleave timestamp text and image
             content_parts.append(timestamp_label)
             content_parts.append(pil_img)
+            content_parts.append(f"frame_{frame_idx}_{timestamp_label}.jpg")
             
         frame_idx += 1
         
@@ -569,6 +574,7 @@ def load_frames_from_dir(frames_dir: str, max_frames: int = 1000) -> List[Any]:
             raise ValueError(f"Failed to read image: {path}: {e}")
         content_parts.append(ts)
         content_parts.append(img)
+        content_parts.append(os.path.basename(path))
     return content_parts
 
 
@@ -603,6 +609,285 @@ def _clear_kimi_files(client: Any) -> None:
         pass
 
 
+def _parse_timestamp_to_seconds(ts_str: str) -> float:
+    ts_str = ts_str.strip()
+    try:
+        # 1. Try HH:MM:SS.mmm format
+        if ':' in ts_str:
+            parts = ts_str.split(':')
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            elif len(parts) == 2:
+                 return int(parts[0]) * 60 + float(parts[1])
+        
+        # 2. Try seconds format (e.g. "60.00s", "60.00", "60s")
+        # Remove 's' suffix if present
+        lower_ts = ts_str.lower()
+        if lower_ts.endswith('s'):
+            ts_str = ts_str[:-1].strip()
+        
+        return float(ts_str)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _seconds_to_timestamp(seconds: float) -> str:
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    # 2FPS means 0.5s precision. Let's use 3 decimal places to be safe and match prompt example.
+    ms = int(round((seconds - int(seconds)) * 1000))
+    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+
+def _merge_batches_python(result_dir: str, video_name: str, batch_count: int) -> str:
+    final_lines = []
+    global_seq = 1
+    
+    # Standard columns as per prompt.md
+    STANDARD_HEADERS = [
+        "序号", "动作描述", "SOP 操作步骤", "左手状态", "右手状态", 
+        "预估耗时(s)", "增值/非增值", "时间段"
+    ]
+    
+    # Keywords to identify columns in source files (fuzzy match)
+    COL_KEYWORDS = {
+        "序号": ["序号", "No", "Seq"],
+        "动作描述": ["动作描述", "动作", "Element", "Description"],
+        "SOP 操作步骤": ["SOP", "步骤", "Step"],
+        "左手状态": ["左手", "Left"],
+        "右手状态": ["右手", "Right"],
+        "预估耗时(s)": ["耗时", "Time", "Duration"],
+        "增值/非增值": ["增值", "VA", "NVA", "Value"],
+        "时间段": ["时间段", "Range", "Timestamp"]
+    }
+
+    # 1. Scan and Sort Files
+    all_files = [f for f in os.listdir(result_dir) if f.endswith(".md") and not f.startswith(".")]
+    
+    def get_sort_key_and_offset(fname):
+        # Try to match "batch_N.md"
+        m_batch = re.match(r"batch_(\d+)\.md", fname)
+        if m_batch:
+            idx = int(m_batch.group(1))
+            # Assuming 60 frames per batch.
+            # If 2FPS, duration is 30s. If 1FPS, duration is 60s.
+            # User said "Reference now each action is sampled at 2FPS".
+            # So we default to 30s offset for batch_N files.
+            return idx, (idx - 1) * 30.0
+            
+        # Try to match "start_end.md" e.g. "0.00.jpg_59.00.jpg.md"
+        # Extract first float
+        m_float = re.match(r"^(\d+(?:\.\d+)?)", fname)
+        if m_float:
+            val = float(m_float.group(1))
+            return val, val
+            
+        return 999999, 0.0
+
+    # Sort files
+    files_with_offset = []
+    for f in all_files:
+        key, offset = get_sort_key_and_offset(f)
+        files_with_offset.append((f, offset))
+    
+    # Sort by key (which is effectively the offset or batch index)
+    files_with_offset.sort(key=lambda x: get_sort_key_and_offset(x[0])[0])
+    
+    print(f"Found {len(files_with_offset)} batch files to merge:")
+    for f, off in files_with_offset:
+        print(f"  - {f} (offset={off})")
+
+    for i, (fname, offset) in enumerate(files_with_offset):
+        batch_path = os.path.join(result_dir, fname)
+            
+        with open(batch_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            
+        # State: 0=Searching Header, 1=Header Found, 2=Separator Found, 3=Rows, 4=Finished
+        state = 0
+        
+        # Accumulator for time within this batch
+        # Start at the batch offset (e.g. 0.0, 60.0, etc.)
+        current_batch_time = offset
+
+        # Mapping from Standard Index -> Source Index
+        col_map = {} 
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+                
+            is_pipe = stripped.startswith("|")
+            is_sep = "---" in stripped and is_pipe
+            
+            if state == 0: # Searching for header
+                if is_pipe and not is_sep:
+                    # Check if it looks like a header (contains "序号" or "动作")
+                    if "序号" in line or "动作" in line:
+                        state = 1
+                        
+                        # Parse source headers
+                        raw_parts = [p.strip() for p in stripped.split("|")]
+                        src_headers = []
+                        src_indices = []
+                        
+                        for idx, p in enumerate(raw_parts):
+                            if p: # Keep non-empty parts
+                                src_headers.append(p)
+                                src_indices.append(idx)
+                        
+                        # Build column map
+                        col_map = {}
+                        used_src_indices = set()
+                        
+                        for std_idx, std_name in enumerate(STANDARD_HEADERS):
+                            keywords = COL_KEYWORDS.get(std_name, [])
+                            found_idx = -1
+                            
+                            # Try to find a matching source column
+                            for h_idx, src_name in enumerate(src_headers):
+                                real_idx = src_indices[h_idx]
+                                if real_idx in used_src_indices:
+                                    continue
+                                for kw in keywords:
+                                    if kw in src_name:
+                                        found_idx = real_idx
+                                        break
+                                if found_idx != -1:
+                                    break
+                            
+                            if found_idx != -1:
+                                col_map[std_idx] = found_idx
+                                used_src_indices.add(found_idx)
+                            else:
+                                pass
+
+                        # If this is the first batch, write the STANDARD header
+                        if i == 0:
+                            header_line = "| " + " | ".join(STANDARD_HEADERS) + " |\n"
+                            final_lines.append(header_line)
+            
+            elif state == 1: # Header found, looking for separator
+                if is_sep:
+                    state = 2
+                    if i == 0:
+                        # Write standard separator
+                        sep_line = "| " + " | ".join([":---"] * len(STANDARD_HEADERS)) + " |\n"
+                        final_lines.append(sep_line)
+                elif is_pipe: 
+                    # Missing separator, this is a row!
+                    if i == 0:
+                        # Write standard separator since we missed it
+                        sep_line = "| " + " | ".join([":---"] * len(STANDARD_HEADERS)) + " |\n"
+                        final_lines.append(sep_line)
+                    state = 3
+                    # Fall through to process this row
+            
+            elif state == 2: # Separator found, expect rows
+                state = 3
+                # Fall through to process this row
+            
+            if state == 3: # Processing rows
+                if is_pipe and not is_sep:
+                    parts = [p.strip() for p in stripped.split("|")]
+                    
+                    if len(parts) < 3: 
+                        continue
+
+                    # Reconstruct row based on col_map
+                    new_parts = [""] * len(STANDARD_HEADERS)
+                    for std_idx in range(len(STANDARD_HEADERS)):
+                        src_idx = col_map.get(std_idx)
+                        if src_idx is not None and src_idx < len(parts):
+                            new_parts[std_idx] = parts[src_idx]
+                        else:
+                            new_parts[std_idx] = "-" # Default value
+                    
+                    # Now apply logic (Sequence, Time, SOP) on the STANDARDIZED row
+                    
+                    # 1. Update Sequence Number (Index 0: 序号)
+                    new_parts[0] = str(global_seq)
+                    global_seq += 1
+                    
+                    # 2. Update Time (Index 7: 时间段)
+                    # Recalculate based on Duration and Batch Offset
+                    time_idx = 7
+                    duration_idx = 5
+                    
+                    parsed_times = False
+                    start_t = 0.0
+                    end_t = 0.0
+
+                    # Try to parse time column first
+                    src_time_idx = col_map.get(time_idx)
+                    if src_time_idx is not None and src_time_idx < len(parts):
+                        time_str = parts[src_time_idx].strip()
+                        if "-" in time_str:
+                             t_parts = time_str.split("-")
+                             if len(t_parts) >= 2:
+                                 try:
+                                     s_local = _parse_timestamp_to_seconds(t_parts[0])
+                                     e_local = _parse_timestamp_to_seconds(t_parts[1])
+                                     
+                                     # Heuristic: If parsed time is greater than offset, assume absolute time
+                                     # (or if offset is 0, it doesn't matter)
+                                     # This handles cases where LLM outputs absolute timestamps
+                                     if s_local >= offset:
+                                         start_t = s_local
+                                         end_t = e_local
+                                     else:
+                                         start_t = s_local + offset
+                                         end_t = e_local + offset
+                                     
+                                     current_batch_time = end_t
+                                     parsed_times = True
+                                 except:
+                                     pass
+
+                    if not parsed_times:
+                        try:
+                            duration_str = new_parts[duration_idx].strip()
+                            match_dur = re.search(r"([\d\.]+)", duration_str)
+                            if match_dur:
+                                duration_val = float(match_dur.group(1))
+                            else:
+                                duration_val = 0.5
+                        except Exception:
+                            duration_val = 0.5
+                        
+                        # Quantize duration to nearest 2FPS frame (0.5s)
+                        frames = round(duration_val * 2.0)
+                        if frames < 1: frames = 1 
+                        duration_val = frames / 2.0
+                        
+                        start_t = current_batch_time
+                        end_t = start_t + duration_val
+                        current_batch_time = end_t
+                    
+                    new_parts[time_idx] = f"{_seconds_to_timestamp(start_t)} - {_seconds_to_timestamp(end_t)}"
+
+                    # 3. Normalize SOP Column (Index 2: SOP 操作步骤)
+                    sop_idx = 2
+                    sop_content = new_parts[sop_idx]
+                    match = re.search(r'(?i)(?:SOP\s*step|中文步骤|SOP|步骤|step)\s*(\d+)', sop_content)
+                    if match:
+                        new_parts[sop_idx] = f"SOP {match.group(1)}"
+                            
+                    # Construct line
+                    final_lines.append("| " + " | ".join(new_parts) + " |\n")
+                    
+                else:
+                    state = 4
+            
+            elif state == 4: # Finished table, ignore rest
+                continue
+
+    return "".join(final_lines)
+
+
 def analyze_video_openai(
     api_key: str,
     video_path: str,
@@ -617,7 +902,7 @@ def analyze_video_openai(
         raise ImportError("openai module not installed. Please install 'openai'.")
 
     if sample_fps <= 0:
-        sample_fps = 1.0
+        sample_fps = 2.0
     
     if frames_dir:
         print(f"Loading frames from directory: {frames_dir}", flush=True)
@@ -631,14 +916,19 @@ def analyze_video_openai(
     print(f"Extracted {len(frames_data) // 2} frames.")
 
     prompt_text = (prompt_override or "").strip() or build_prompt(use_frames=True)
-    frames: List[Tuple[str, PILImage.Image]] = []
-    for i in range(0, len(frames_data), 2):
+    
+    # Inject SOP content into prompt if provided (redundant check if already added in setup, but safe)
+    # prompt_text logic handled in main() where sop_content is merged into prompt_override
+        
+    frames: List[Tuple[str, PILImage.Image, str]] = []
+    for i in range(0, len(frames_data), 3):
         ts = str(frames_data[i])
         img = frames_data[i + 1]
+        fname = str(frames_data[i + 2])
         if isinstance(img, PILImage.Image):
-            frames.append((ts, img))
+            frames.append((ts, img, fname))
 
-    used_model = _normalize_kimi_model_name(model)
+    used_model = _normalize_model_name(model)
     base_url = "https://api.moonshot.cn/v1"
     print(
         json.dumps(
@@ -775,7 +1065,7 @@ def analyze_video_openai(
             while True:
                 batch = frames[idx : idx + current_size]
                 messages_content: List[Dict[str, Any]] = [{"type": "text", "text": prompt_text}]
-                for ts, img in batch:
+                for ts, img, _ in batch:
                     messages_content.append({"type": "text", "text": f"Timestamp: {ts}"})
                     b64 = encode_image(img)
                     messages_content.append(
@@ -808,7 +1098,27 @@ def analyze_video_openai(
                     content = response.choices[0].message.content or "{}"
 
                     # Save batch result to MD file
-                    batch_md_path = os.path.join(result_dir, f"batch_{batch_index}.md")
+                    # Naming rule: batch start image suffix + batch end image suffix
+                    start_fname = batch[0][2]
+                    end_fname = batch[-1][2]
+                    
+                    def _get_suffix(s: str) -> str:
+                        if "_" in s:
+                            return s.rsplit("_", 1)[1]
+                        return s
+
+                    s_suffix = _get_suffix(start_fname)
+                    e_suffix = _get_suffix(end_fname)
+                    
+                    # Ensure .md extension is appended to the combined suffixes
+                    # Example: 0.00.jpg_2.00.jpg.md (if suffix includes extension)
+                    # Or if user meant just the value, they might want to strip extension.
+                    # But "图片名最后面的_后缀" usually includes extension in this context.
+                    # I'll keep it as is to be safe and strict to instruction.
+                    
+                    batch_md_name = f"{s_suffix}_{e_suffix}.md"
+                    batch_md_path = os.path.join(result_dir, batch_md_name)
+                    
                     with open(batch_md_path, "w", encoding="utf-8") as f:
                         f.write(content)
 
@@ -853,9 +1163,25 @@ def analyze_video_openai(
                         elif isinstance(data, list):
                             model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
                         batch_actions = parse_actions(model_output.get("actions"))
+                        # Apply offset as per user requirement for batches
+                        time_offset = (batch_index - 1) * 60.0
+                        if time_offset > 0:
+                            threshold = time_offset - 5.0
+                            for act in batch_actions:
+                                start_t = float(act.get("start_time", 0))
+                                end_t = float(act.get("end_time", 0))
+                                if start_t < threshold:
+                                    act["start_time"] = start_t + time_offset
+                                    act["end_time"] = end_t + time_offset
                         all_actions.extend(batch_actions)
                     break
                 except Exception as e:
+                    # Fallback Logic for Genie 3 Flash -> Genie 2.5 Flash
+                    if used_model == "gemini-2.0-flash":
+                         print(f"[WARNING] Model {used_model} failed with error: {e}. Falling back to gemini-1.5-flash (Genie 2.5).")
+                         used_model = "gemini-1.5-flash"
+                         continue
+
                     msg = str(e).lower()
                     if "timed out" in msg or "timeout" in msg:
                         if current_size > 4:
@@ -875,176 +1201,23 @@ def analyze_video_openai(
                     raise
             idx += current_size
 
-        # Manual Merge Strategy
-        print("Starting manual merge of batch files...", flush=True)
-        merged_overview = []
-        all_cts = []
-        all_uphs = []
-        merged_rows = []
-        # Structure for Deep Dive Findings
-        merged_findings = {
-            "Stability": [],
-            "Ergonomics": [],
-            "Cognitive Load": [],
-            "Material/Environment": []
-        }
-        merged_kaizen = []
-        
-        table_header = None
-        table_separator = None
-        current_row_index = 1
-        kaizen_issue_index = 1
-        
-        # Determine title from first batch
-        title_section = "# AutoIE Analysis Result"
-        first_batch_path = os.path.join(result_dir, "batch_1.md")
-        if os.path.exists(first_batch_path):
-            with open(first_batch_path, 'r', encoding='utf-8') as f:
-                first_content = f.read()
-            # Extract title/preamble (everything before the first ## section)
-            # But be careful if the file starts immediately with ##
-            if first_content.strip().startswith("##"):
-                title_section = "# AutoIE Analysis Result"
+        # Python Merge Strategy (Manual Merge with Time Offset)
+        print("Starting Python merge of batch files...", flush=True)
+        try:
+            # Ensure result directory exists
+            if not os.path.exists(result_dir):
+                print(f"[WARNING] Result directory {result_dir} does not exist. Creating empty result.", flush=True)
+                final_content = "| 序号 | 动作描述 | SOP 操作步骤 | 左手状态 | 右手状态 | 预估耗时(s) | 增值/非增值 | 时间段 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
             else:
-                title_match = re.search(r"^(.*?)(?=\n## )", first_content, re.DOTALL)
-                if title_match:
-                    title_section = title_match.group(1).strip()
-
-        for i in range(1, batch_index + 1):
-            b_path = os.path.join(result_dir, f"batch_{i}.md")
-            if not os.path.exists(b_path):
-                continue
+                final_content = _merge_batches_python(result_dir, video_name, batch_index)
             
-            with open(b_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            
-            # 1. 工序概览
-            overview = _extract_section(content, "## 1. 工序概览")
-            if overview:
-                cln_ov = _clean_section_content(overview)
-                merged_overview.append(cln_ov)
-                # Extract CT
-                m_ct = re.search(r"\* \*\*预估节拍 \(CT\):\*\*.*?(\d+(?:\.\d+)?)", cln_ov)
-                if m_ct:
-                    try:
-                        all_cts.append(float(m_ct.group(1)))
-                    except:
-                        pass
-                # Extract UPH
-                m_uph = re.search(r"\* \*\*理论产能 \(UPH\):\*\*.*?(\d+)", cln_ov)
-                if m_uph:
-                    try:
-                        all_uphs.append(float(m_uph.group(1)))
-                    except:
-                        pass
-            
-            # 2. 详细动作分析表
-            motion = _extract_section(content, "## 2. 详细动作分析表 (Motion Breakdown)")
-            if motion:
-                motion = _clean_section_content(motion)
-                header, separator, rows = _parse_table(motion)
-                if header and separator:
-                    if table_header is None:
-                        table_header = header
-                        table_separator = separator
-                    
-                    for row in rows:
-                        # Re-index: replace first number between pipes with current_row_index
-                        row = re.sub(r"^\|\s*\d+\s*\|", f"| {current_row_index} |", row)
-                        merged_rows.append(row)
-                        current_row_index += 1
-            
-            # 3. 深度诊断发现
-            findings_text = _extract_section(content, "## 3. 深度诊断发现 (Deep Dive Findings)")
-            if findings_text:
-                findings_text = _clean_section_content(findings_text)
-                parsed_findings = _parse_deep_dive_section(findings_text)
-                for cat, items in parsed_findings.items():
-                    merged_findings[cat].extend(items)
-                
-            # 4. 改善机会
-            kaizen = _extract_section(content, "## 4. 改善机会 (Kaizen Opportunities)")
-            if kaizen:
-                kaizen_text = _clean_section_content(kaizen)
-                def _repl_kaizen(m):
-                    nonlocal kaizen_issue_index
-                    res = f"* **问题点 {kaizen_issue_index}:"
-                    kaizen_issue_index += 1
-                    return res
-                kaizen_text = re.sub(r"\* \*\*问题点 \d+:", _repl_kaizen, kaizen_text)
-                merged_kaizen.append(kaizen_text)
-        
-        # Construct final MD
-        final_md_parts = []
-        final_md_parts.append(title_section)
-        final_md_parts.append("\n\n---\n\n")
-        
-        # Calculate averages for Overview
-        merged_overview_text = merged_overview[0] if merged_overview else "(No overview found)"
-        if merged_overview_text != "(No overview found)":
-            if all_cts:
-                avg_ct = sum(all_cts) / len(all_cts)
-                merged_overview_text = re.sub(r"(\* \*\*预估节拍 \(CT\):\*\*).*", f"\\1 约 {avg_ct:.2f} 秒 (基于多Batch平均)", merged_overview_text)
-            if all_uphs:
-                avg_uph = sum(all_uphs) / len(all_uphs)
-                merged_overview_text = re.sub(r"(\* \*\*理论产能 \(UPH\):\*\*).*", f"\\1 约 {int(avg_uph)} pcs/h (基于多Batch平均)", merged_overview_text)
-
-        final_md_parts.append("## 1. 工序概览\n")
-        final_md_parts.append(merged_overview_text)
-        final_md_parts.append("\n\n---\n\n")
-        
-        final_md_parts.append("## 2. 详细动作分析表 (Motion Breakdown)\n")
-        if table_header and table_separator:
-            final_md_parts.append(table_header)
-            final_md_parts.append(table_separator)
-            final_md_parts.append("\n".join(merged_rows))
-        else:
-            final_md_parts.append("(No table data found)")
-        final_md_parts.append("\n\n---\n\n")
-        
-        final_md_parts.append("## 3. 深度诊断发现 (Deep Dive Findings)\n")
-        
-        # Output categorized findings
-        # 稳定性 (Stability)
-        if merged_findings["Stability"]:
-            final_md_parts.append("* **稳定性 (Stability):**")
-            for item in merged_findings["Stability"]:
-                final_md_parts.append(f"  {item}")
-            final_md_parts.append("")
-
-        # 人机工程 (Ergonomics)
-        if merged_findings["Ergonomics"]:
-            final_md_parts.append("* **人机工程 (Ergonomics):**")
-            for item in merged_findings["Ergonomics"]:
-                final_md_parts.append(f"  {item}")
-            final_md_parts.append("")
-
-        # 认知负荷 (Cognitive Load)
-        if merged_findings["Cognitive Load"]:
-            final_md_parts.append("* **认知负荷 (Cognitive Load):**")
-            for item in merged_findings["Cognitive Load"]:
-                final_md_parts.append(f"  {item}")
-            final_md_parts.append("")
-
-        # 物料/环境 (Material/Environment)
-        if merged_findings["Material/Environment"]:
-            final_md_parts.append("* **物料/环境 (Material/Environment):**")
-            for item in merged_findings["Material/Environment"]:
-                final_md_parts.append(f"  {item}")
-            final_md_parts.append("")
-
-        final_md_parts.append("\n\n---\n\n")
-        
-        final_md_parts.append("## 4. 改善机会 (Kaizen Opportunities)\n")
-        final_md_parts.append("\n".join(merged_kaizen))
-        
-        final_content = "\n".join(final_md_parts)
-        
-        final_md_path = os.path.join("result", f"{video_name}.md")
-        with open(final_md_path, "w", encoding="utf-8") as f:
-            f.write(final_content)
-            
-        print(f"Successfully merged {batch_index} batches into {final_md_path}", flush=True)
+            final_md_path = os.path.join("result", f"{video_name}.md")
+            with open(final_md_path, "w", encoding="utf-8") as f:
+                f.write(final_content)
+            print(f"Successfully merged {batch_index} batches into {final_md_path} using Python merge", flush=True)
+        except Exception as e:
+             print(f"[ERROR] Python Merge failed: {e}", flush=True)
+             raise RuntimeError(f"Python Merge failed: {e}")
         actions = _merge_adjacent_actions(all_actions)
         computed_stats = compute_stats(actions)
 
@@ -1165,7 +1338,7 @@ def analyze_video(
     prompt_override: Optional[str] = None,
     output_stem: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[DetectedAction]]:
-    normalized = _normalize_kimi_model_name(model)
+    normalized = _normalize_model_name(model)
     if normalized.startswith("kimi") or normalized.startswith("moonshot"):
         return analyze_video_openai(
             api_key,
@@ -1179,148 +1352,175 @@ def analyze_video(
 
     client = genai.Client(api_key=api_key)
 
-    contents: List[Any] = []
-    file_info: Any = None
-    use_frames = False
-
-    if sample_fps > 0:
-        # Client-side frame extraction
-        print(f"Extracting frames at {sample_fps} FPS...")
-        contents = extract_frames(video_path, sample_fps)
-        if not contents:
-            raise ValueError("No frames extracted from video.")
-        use_frames = True
-        print(f"Extracted {len(contents) // 2} frames.")
-    else:
-        # Standard video file upload
-        uploaded_file = None
-        max_attempts = _env_int("GENAI_UPLOAD_MAX_ATTEMPTS", 4)
-        base_delay = _env_float("GENAI_RETRY_BASE_DELAY_SECONDS", 1.0)
-        max_delay = _env_float("GENAI_RETRY_MAX_DELAY_SECONDS", 20.0)
-        for attempt in range(1, max_attempts + 1):
-            try:
-                print(
-                    json.dumps(
-                        {
-                            "event": "genai.files.upload.request",
-                            "attempt": attempt,
-                            "max_attempts": max_attempts,
-                            "video_path": video_path,
-                        },
-                        ensure_ascii=False,
-                    ),
-                    flush=True,
-                )
-                uploaded_file = client.files.upload(file=video_path)
-                print(
-                    json.dumps(
-                        {
-                            "event": "genai.files.upload.response",
-                            "file_name": getattr(uploaded_file, "name", None),
-                            "uri": getattr(uploaded_file, "uri", None),
-                            "mime_type": getattr(uploaded_file, "mime_type", None),
-                            "state": str(getattr(uploaded_file, "state", None)),
-                        },
-                        ensure_ascii=False,
-                    ),
-                    flush=True,
-                )
-                break
-            except (errors.ClientError, errors.ServerError) as e:
-                if attempt >= max_attempts or not _is_retryable_genai_error(e):
-                    raise
-                code = _get_error_code(e)
-                print(f"GenAI 上传失败（{code or 'unknown'}），第 {attempt}/{max_attempts} 次重试中...", flush=True)
-                _sleep_backoff(attempt, base_delay, max_delay)
-        if uploaded_file is None:
-            raise RuntimeError("Upload failed")
-        file_info = wait_until_file_active(client, uploaded_file.name or "")
-        contents = [uploaded_file]
-
-    prompt = (prompt_override or "").strip() or build_prompt(use_frames=use_frames)
-    contents.append(prompt)
+    # --- Batch Processing Logic (Parity with Kimi 2.5) ---
+    # The user requested "do the kimi 2.5's job", which implies:
+    # 1. Frame extraction (default 1 FPS)
+    # 2. Batch processing (60 frames/batch)
+    # 3. MD output and merging
     
-    generation_config = {}
-    if not prompt_override:
-        schema = build_response_json_schema()
-        generation_config = {
-            "response_mime_type": "application/json",
-            "response_json_schema": schema,
-        }
-
-    primary_model = model
-    fallback_model = "gemini-2.5-flash"
-    used_model = primary_model
-
-    response, used_model = _generate_content_with_retry(
-        client,
-        primary_model,
-        contents,
-        generation_config,
-        fallback_model=fallback_model,
-    )
-
-    text = response.text or "{}"
+    if sample_fps <= 0:
+        sample_fps = 2.0
     
-    model_output: ModelOutput = {}
-    if prompt_override:
-        model_output = {"raw_content": text, "actions": [], "stats": {}, "advice": []}
+    frames_data: List[Any] = []
+    if frames_dir:
+        print(f"Loading frames from directory: {frames_dir}", flush=True)
+        frames_data = load_frames_from_dir(frames_dir, max_frames=1000)
     else:
+        print(f"Extracting frames for {model} at {sample_fps} FPS...", flush=True)
+        frames_data = extract_frames(video_path, sample_fps)
+    
+    if not frames_data:
+        raise ValueError("No frames extracted from video.")
+    
+    print(f"Extracted {len(frames_data) // 2} frames.")
+
+    frames: List[Tuple[str, PILImage.Image, str]] = []
+    for i in range(0, len(frames_data), 3):
+        ts = str(frames_data[i])
+        img = frames_data[i + 1]
+        fname = str(frames_data[i + 2])
+        if isinstance(img, PILImage.Image):
+            frames.append((ts, img, fname))
+
+    prompt_text = (prompt_override or "").strip() or build_prompt(use_frames=True)
+    
+    # Create result directory
+    video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
+    result_dir = os.path.join("result", video_name)
+    os.makedirs(result_dir, exist_ok=True)
+
+    batch_size = 60
+    idx = 0
+    batch_index = 0
+    
+    used_model = normalized
+    # Fallback setup
+    fallback_model = "gemini-1.5-flash"
+    
+    prompt_tokens_total = 0
+    completion_tokens_total = 0
+    total_tokens_total = 0
+
+    while idx < len(frames):
+        batch_index += 1
+        current_size = min(batch_size, len(frames) - idx)
+        batch = frames[idx : idx + current_size]
+        
+        # Build contents for Gemini
+        # Interleave text and images
+        contents: List[Any] = [prompt_text]
+        for ts, img, _ in batch:
+            contents.append(f"Timestamp: {ts}")
+            contents.append(img)
+            
+        print(
+            json.dumps(
+                {
+                    "event": "gemini.generate_content.request.batch",
+                    "model": used_model,
+                    "batch_index": batch_index,
+                    "batch_frame_count": len(batch),
+                    "batch_start": idx,
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            data = {}
+            # Config
+            config = {} # Default config
+            
+            resp, actual_model = _generate_content_with_retry(
+                client,
+                used_model,
+                contents,
+                config,
+                fallback_model=fallback_model
+            )
+            
+            content = getattr(resp, "text", "") or ""
+            
+            # Save batch result to MD file
+            start_fname = batch[0][2]
+            end_fname = batch[-1][2]
+            
+            def _get_suffix(s: str) -> str:
+                if "_" in s:
+                    return s.rsplit("_", 1)[1]
+                return s
 
-        if isinstance(data, dict):
-            model_output = data  # type: ignore[assignment]
-        elif isinstance(data, list):
-            model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
+            s_suffix = _get_suffix(start_fname)
+            e_suffix = _get_suffix(end_fname)
+            batch_md_name = f"{s_suffix}_{e_suffix}.md"
+            batch_md_path = os.path.join(result_dir, batch_md_name)
+            
+            with open(batch_md_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            # Usage tracking
+            usage = getattr(resp, "usage_metadata", None)
+            if usage:
+                prompt_tokens_total += getattr(usage, "prompt_token_count", 0) or 0
+                completion_tokens_total += getattr(usage, "candidates_token_count", 0) or 0
+                total_tokens_total += getattr(usage, "total_token_count", 0) or 0
 
-    actions = parse_actions(model_output.get("actions"))
-    computed_stats = compute_stats(actions)
+        except Exception as e:
+            print(f"[ERROR] Batch {batch_index} failed: {e}", flush=True)
+            # Depending on requirements, we might want to continue or raise.
+            # Kimi implementation raises or continues depending on error.
+            # Here we raise to ensure visibility, or we could skip.
+            raise e
 
-    usage = getattr(response, "usage_metadata", None)
-    usage_dict: Optional[Dict[str, Any]] = None
-    if usage is not None:
-        usage_dict = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage)
-    else:
-        # count_tokens also supports multimodal content list
-        count = client.models.count_tokens(model=used_model, contents=contents)
-        usage_dict = {
-            "prompt_token_count": getattr(count, "total_tokens", None),
-            "response_token_count": None,
-            "total_token_count": None,
-        }
+        idx += current_size
 
-    input_tokens = usage_dict.get("prompt_token_count")
-    output_tokens = usage_dict.get("response_token_count", None)
-    if output_tokens is None:
-        output_tokens = usage_dict.get("candidates_token_count", None)
-    total_tokens = usage_dict.get("total_token_count")
-    if total_tokens is None and input_tokens is not None and output_tokens is not None:
-        total_tokens = int(input_tokens) + int(output_tokens)
+    # Merge Batches
+    print("Starting Python merge of batch files...", flush=True)
+    try:
+        final_content = _merge_batches_python(result_dir, video_name, batch_index)
+        final_md_path = os.path.join("result", f"{video_name}.md")
+        with open(final_md_path, "w", encoding="utf-8") as f:
+            f.write(final_content)
+        print(f"Successfully merged {batch_index} batches into {final_md_path}", flush=True)
+    except Exception as e:
+        print(f"[ERROR] Python Merge failed: {e}", flush=True)
+        final_content = ""
+
+    # Construct result object
+    # Since we are using prompt_override (SOP mode), actions/stats are empty as per Kimi parity
+    actions: List[DetectedAction] = []
+    computed_stats = compute_stats([])
+    
+    usage_dict = {
+        "prompt_token_count": prompt_tokens_total,
+        "response_token_count": completion_tokens_total,
+        "total_token_count": total_tokens_total,
+    }
+
+    model_output: ModelOutput = {
+        "raw_content": final_content,
+        "actions": actions,
+        "stats": computed_stats,
+        "advice": [],
+    }
 
     result: Dict[str, Any] = {
         "input": {"video_path": video_path},
         "model": {"requested": model, "used": used_model},
-        "file": {
-            "name": getattr(file_info, "name", None),
-            "uri": getattr(file_info, "uri", None),
-            "mime_type": getattr(file_info, "mime_type", None),
-            "state": str(getattr(file_info, "state", None)),
-        },
-        "prompt": prompt,
+        "file": {"name": "frames_batch", "uri": None, "mime_type": "image/jpeg", "state": "processed"},
+        "prompt": prompt_text,
         "token_usage": usage_dict,
         "token_summary": {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": total_tokens,
+            "input_tokens": prompt_tokens_total,
+            "output_tokens": completion_tokens_total,
+            "total_tokens": total_tokens_total,
         },
         "model_output": model_output,
         "computed_stats": computed_stats,
         "actions": actions,
         "created_at": time.time(),
     }
+    
     return result, actions
 
 
@@ -1370,6 +1570,11 @@ def main() -> None:
         default="",
         help="从指定文件读取 prompt（支持 .json 或纯文本）。",
     )
+    parser.add_argument(
+        "--sop-content",
+        default="",
+        help="SOP content string to inject into the prompt.",
+    )
     args = parser.parse_args()
 
     api_key = args.api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
@@ -1388,6 +1593,15 @@ def main() -> None:
 
     frames_dir = str(args.frames_dir or "").strip() or None
     prompt_override = load_prompt_from_file(str(args.prompt_file or "data/prompt.md").strip())
+    
+    sop_override = args.sop_content or load_prompt_from_file("data/SOP.md")
+    if sop_override:
+        if "## 预设 SOP Steps" not in sop_override:
+             sop_override = f"\n\n## 预设 SOP Steps\n请参考以下标准作业程序(SOP)步骤进行分析：\n{sop_override}\n"
+        if prompt_override:
+            prompt_override += "\n\n" + sop_override
+        else:
+            prompt_override = sop_override
     
     out_path = args.out or default_result_path(args.video)
     if not args.out and prompt_override:
@@ -1408,9 +1622,11 @@ def main() -> None:
     if prompt_override and "model_output" in payload and "raw_content" in payload["model_output"]:
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(payload["model_output"]["raw_content"])
-    elif not prompt_override:
-        write_result(out_path, payload)
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        # User requested to NOT generate JSON files anymore.
+        # write_result(out_path, payload)
+        # print(json.dumps(payload, ensure_ascii=False, indent=2))
+        pass
 
     # Check if MD file exists (likely created by manual merge or raw content write)
     # and update out_path for the log message if needed.

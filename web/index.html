@@ -1972,6 +1972,8 @@
                 setToken('');
                 setLoginActive(true);
                 reject(new Error('未登录或登录已过期'));
+              } else if (xhr.status === 0) {
+                reject(new Error('网络连接失败或上传超时 (HTTP 0)'));
               } else {
                 reject(new Error('HTTP ' + xhr.status));
               }
