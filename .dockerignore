@@ -14,3 +14,6 @@ result/*
 !result/.keep
 data/*
 !data/.keep
+!data/prompt.md
+!data/SOP.md
+*.tar

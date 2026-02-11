@@ -16,22 +16,48 @@ WORKDIR /app
 # Install system dependencies
 # ffmpeg is required for video processing
 # libgl1/libglib2.0 are often needed for cv2 (even headless sometimes depends on them)
-RUN if [ -f /etc/apt/sources.list ]; then sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list; fi && if [ -f /etc/apt/sources.list.d/debian.sources ]; then sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; fi && apt-get update && apt-get install -y \
-    ffmpeg \
+# Update sources and install base dependencies
+# Removed libsm6, libxext6, libxrender1 as they are X11/GUI libraries not needed for headless
+RUN if [ -f /etc/apt/sources.list ]; then sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list; fi && \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; fi
+
+# Split installs to prevent OOM
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ffmpeg separately
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install mariadb-server separately
+RUN apt-get update && apt-get install -y --no-install-recommends \
     mariadb-server \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN if [ "${TARGETARCH}" = "amd64" ]; then \
-    curl -L --retry 10 --retry-delay 10 --retry-connrefused -o torch-2.2.2+cpu-cp311-cp311-linux_x86_64.whl ${TORCH_WHL_URL} && \
-    pip install --no-cache-dir torch-2.2.2+cpu-cp311-cp311-linux_x86_64.whl torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu --extra-index-url ${PIP_INDEX_URL} && \
-    rm torch-2.2.2+cpu-cp311-cp311-linux_x86_64.whl; \
-fi
-RUN pip install --no-cache-dir --retries 10 --timeout 300 -r requirements.txt
+
+# CRITICAL: Install CPU-only versions of torch AND torchvision BEFORE requirements.txt
+# If we don't install torchvision here, pip install ultralytics will pull the default (CUDA) torchvision,
+# which will then pull the default (CUDA) torch, causing massive image size.
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu; \
+    else \
+    pip install --no-cache-dir torch torchvision; \
+    fi
+
+RUN pip install --no-cache-dir --retries 10 --timeout 300 -r requirements.txt && \
+    pip uninstall -y opencv-python || true && \
+    pip install --no-cache-dir --force-reinstall opencv-python-headless && \
+    yolo settings updates=false sync=false
 
 # Copy project files
 COPY . .

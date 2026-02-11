@@ -1,12 +1,51 @@
 import argparse
-import cv2
-import numpy as np
-from ultralytics import YOLO
 import sys
 import os
-import json
-import base64
-from PIL import Image, ImageDraw, ImageFont
+
+# Set matplotlib backend to Agg before importing anything else that might use it
+import matplotlib
+matplotlib.use('Agg')
+
+print("[HANDLE_VIDEO] Script started", file=sys.stderr)
+print(f"[HANDLE_VIDEO] CWD: {os.getcwd()}", file=sys.stderr)
+
+# Check for model file
+model_path = "yolov8n-pose.pt"
+if not os.path.exists(model_path):
+    print(f"[HANDLE_VIDEO] Error: Model file {model_path} not found in {os.getcwd()}", file=sys.stderr)
+    # Try absolute path based on script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # script is in prehandle/, model is in root (parent)
+    root_dir = os.path.dirname(script_dir)
+    alt_path = os.path.join(root_dir, model_path)
+    if os.path.exists(alt_path):
+        print(f"[HANDLE_VIDEO] Found model at {alt_path}", file=sys.stderr)
+        model_path = alt_path
+    else:
+        print(f"[HANDLE_VIDEO] Error: Model file also not found at {alt_path}", file=sys.stderr)
+
+# Check for ffmpeg
+import shutil
+ffmpeg_path = shutil.which('ffmpeg')
+if ffmpeg_path:
+    print(f"[HANDLE_VIDEO] ffmpeg found at {ffmpeg_path}", file=sys.stderr)
+else:
+    print("[HANDLE_VIDEO] Warning: ffmpeg not found in PATH", file=sys.stderr)
+
+try:
+    import cv2
+    import numpy as np
+    from ultralytics import YOLO, settings
+    # Disable Ultralytics checks/updates
+    settings.update({'sync': False, 'updates': False})
+    
+    import json
+    import base64
+    from PIL import Image, ImageDraw, ImageFont
+    print("[HANDLE_VIDEO] Imports successful", file=sys.stderr)
+except Exception as e:
+    print(f"[HANDLE_VIDEO] Import error: {e}", file=sys.stderr)
+    sys.exit(1)
 
 # Try to import MediaPipe Tasks API
 MP_TASKS_AVAILABLE = False

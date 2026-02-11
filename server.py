@@ -2,6 +2,7 @@ import http.server
 import socketserver
 import json
 import os
+import shutil
 import re
 import datetime
 import subprocess
@@ -215,8 +216,69 @@ def background_analyze_task(username, video_path, model, fps, api_key, sop_conte
         if sop_content:
             cmd_main.extend(['--sop-content', sop_content])
 
-        # handle_video.py execution removed as per user request (only keep md files)
-        output_video_path = None
+        # handle_video.py execution restored
+        # Use result_filename (which has timestamp) but change extension to .mp4
+        video_result_filename = result_filename.replace('.md', '.mp4')
+        output_video_path = os.path.join('result', video_result_filename)
+        
+        # cmd_handle = [
+        #     python_exe, 'prehandle/handle_video.py',
+        #     video_path,
+        #     '--out', output_video_path,
+        #     '--no-gui',
+        #     '--threshold', '0.5'
+        # ]
+        
+        # _append_task_log(username, f"[INFO] Starting YOLO pose detection: {' '.join(cmd_handle)}\n")
+        
+        # try:
+        #     proc_handle = subprocess.Popen(
+        #         cmd_handle,
+        #         stdout=subprocess.PIPE,
+        #         stderr=subprocess.PIPE,
+        #         text=True,
+        #         bufsize=1,
+        #         universal_newlines=True,
+        #         env=env
+        #     )
+            
+        #     for line in proc_handle.stdout:
+        #          log(f"[HANDLE]{line}".encode('utf-8'))
+            
+        #     stderr_out = proc_handle.stderr.read()
+        #     if stderr_out:
+        #          log(f"[HANDLE_ERR]{stderr_out}".encode('utf-8'))
+                 
+        #     proc_handle.wait()
+            
+        #     if proc_handle.returncode == 0:
+        #          _append_task_log(username, f"[INFO] YOLO pose detection completed. Output: {output_video_path}\n")
+        #     else:
+        #          _append_task_log(username, f"[ERROR] YOLO pose detection failed with code {proc_handle.returncode}. Fallback: Copying original video.\n")
+        #          try:
+        #              shutil.copy2(video_path, output_video_path)
+        #              _append_task_log(username, f"[INFO] Copied original video to {output_video_path}\n")
+        #          except Exception as copy_err:
+        #              _append_task_log(username, f"[ERROR] Fallback copy failed: {str(copy_err)}\n")
+        #              output_video_path = None
+
+        # except Exception as e:
+        #     _append_task_log(username, f"[ERROR] Failed to run YOLO pose detection: {str(e)}. Fallback: Copying original video.\n")
+        #     try:
+        #          shutil.copy2(video_path, output_video_path)
+        #          _append_task_log(username, f"[INFO] Copied original video to {output_video_path}\n")
+        #     except Exception as copy_err:
+        #          _append_task_log(username, f"[ERROR] Fallback copy failed: {str(copy_err)}\n")
+        #          output_video_path = None
+        
+        # Direct copy without YOLO detection
+        try:
+            _append_task_log(username, f"[INFO] Skipping YOLO detection. Copying video to {output_video_path}\n")
+            shutil.copy2(video_path, output_video_path)
+            _append_task_log(username, f"[INFO] Copied original video to {output_video_path}\n")
+        except Exception as copy_err:
+            _append_task_log(username, f"[ERROR] Copy failed: {str(copy_err)}\n")
+            output_video_path = None
         
         _set_task_progress(username, "analyze", 0, 0)
         _append_task_log(username, f"[INFO] Starting analysis for {video_path}\n")

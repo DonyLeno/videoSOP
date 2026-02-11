@@ -1,7 +1,9 @@
 google-genai>=0.6.0
-opencv-python-headless>=4.11.0
 numpy<2.0.0
 Pillow
 mysql-connector-python>=9.0.0
 ultralytics==8.3.232
 openai>=1.0.0
+# Ensure headless opencv is used
+opencv-python-headless>=4.11.0
+matplotlib>=3.3.0
