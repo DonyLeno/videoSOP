@@ -1536,6 +1536,27 @@ def write_result(path: str, payload: Dict[str, Any]) -> None:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
+def _resolve_api_key(cli_api_key: Optional[str]) -> str:
+    api_key = cli_api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
+    if api_key:
+        return str(api_key)
+    api_key = getpass.getpass("API key (Gemini/Kimi): ").strip()
+    if not api_key:
+        raise SystemExit("Missing API key. Set GOOGLE_API_KEY/MOONSHOT_API_KEY, or use --api-key.")
+    return api_key
+
+
+def _merge_sop_into_prompt(prompt_override: Optional[str], sop_override: Optional[str]) -> Optional[str]:
+    if not sop_override:
+        return prompt_override
+    sop_text = str(sop_override)
+    if "## 预设 SOP Steps" not in sop_text:
+        sop_text = f"\n\n## 预设 SOP Steps\n请参考以下标准作业程序(SOP)步骤进行分析：\n{sop_text}\n"
+    if prompt_override:
+        return str(prompt_override) + "\n\n" + sop_text
+    return sop_text
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Use Gemini 3 Pro API to detect actions in a video file."
@@ -1577,13 +1598,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    api_key = args.api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
-    if not api_key:
-        api_key = getpass.getpass("API key (Gemini/Kimi): ").strip()
-        if not api_key:
-            raise SystemExit(
-                "Missing API key. Set GOOGLE_API_KEY/MOONSHOT_API_KEY, or use --api-key."
-            )
+    api_key = _resolve_api_key(args.api_key)
 
     if not os.path.exists(args.video):
         raise SystemExit(f"Video file not found: {args.video}")
@@ -1593,16 +1608,10 @@ def main() -> None:
 
     frames_dir = str(args.frames_dir or "").strip() or None
     prompt_override = load_prompt_from_file(str(args.prompt_file or "data/prompt.md").strip())
-    
+
     sop_override = args.sop_content or load_prompt_from_file("data/SOP.md")
-    if sop_override:
-        if "## 预设 SOP Steps" not in sop_override:
-             sop_override = f"\n\n## 预设 SOP Steps\n请参考以下标准作业程序(SOP)步骤进行分析：\n{sop_override}\n"
-        if prompt_override:
-            prompt_override += "\n\n" + sop_override
-        else:
-            prompt_override = sop_override
-    
+    prompt_override = _merge_sop_into_prompt(prompt_override, sop_override)
+
     out_path = args.out or default_result_path(args.video)
     if not args.out and prompt_override:
         # If using custom prompt (likely markdown), change extension to .md
@@ -1620,6 +1629,7 @@ def main() -> None:
         output_stem=output_stem,
     )
     if prompt_override and "model_output" in payload and "raw_content" in payload["model_output"]:
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(payload["model_output"]["raw_content"])
     else:

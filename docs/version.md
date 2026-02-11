@@ -1,0 +1,25 @@
+# Version History
+
+## v10.6
+- **Date**: 2026-02-11
+- **Commit Message**: 重构工程结构（backend/、docker/、docs/）并整理部署脚本
+
+## v10.52
+- **Date**: 2026-02-11
+- **Commit Message**: 修复 /api/analyze 中 shutil 作用域导致的 UnboundLocalError
+
+## v10.51
+- **Date**: 2026-02-11
+- **Commit Message**: 修复 SOP 打包下载在云端无响应；SOP 文件夹命名为 SOP1/SOP2
+
+## v10.0
+- **Date**: 2026-02-10
+- **Commit Message**: SOP视频分拆
+
+## v2.3
+- **Date**: 2026-02-02
+- **Commit Message**: prompt changing
+
+## v2.2
+- **Date**: 2026-02-01
+- **Commit Message**: chinese version fix chinese name input bug
