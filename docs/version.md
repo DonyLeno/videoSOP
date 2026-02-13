@@ -1,5 +1,9 @@
 # Version History
 
+## v10.6.4
+- **Date**: 2026-02-13
+- **Commit Message**: 修复 Debian pip 升级冲突，确保 Docker 构建可继续安装依赖并导出 tar
+
 ## v10.6.3
 - **Date**: 2026-02-13
 - **Commit Message**: 修复 mariadb:11 基础镜像下 pip PEP668 安装失败，确保可构建 amd64 tar 包
