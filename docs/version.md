@@ -1,5 +1,9 @@
 # Version History
 
+## v10.6.2
+- **Date**: 2026-02-13
+- **Commit Message**: 支持通过镜像源构建（避免 DockerHub 超时），并导出 amd64 tar 包
+
 ## v10.6.1
 - **Date**: 2026-02-13
 - **Commit Message**: 修复特殊字符结果视频无法播放；修复 SOP 下载与导出兼容性；优化 Docker/DB 启动稳定性
