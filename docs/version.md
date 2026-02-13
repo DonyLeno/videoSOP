@@ -1,5 +1,9 @@
 # Version History
 
+## v10.6.5
+- **Date**: 2026-02-13
+- **Commit Message**: 避免 Debian pip/ wheel 卸载冲突，确保 Docker 可安装依赖并导出 tar
+
 ## v10.6.4
 - **Date**: 2026-02-13
 - **Commit Message**: 修复 Debian pip 升级冲突，确保 Docker 构建可继续安装依赖并导出 tar

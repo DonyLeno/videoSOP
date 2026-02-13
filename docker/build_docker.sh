@@ -5,7 +5,7 @@ set -e
 echo "Building Docker image for linux/amd64..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-VERSION="v10.6.4"
+VERSION="v10.6.5"
 MARIADB_BASE_IMAGE="${MARIADB_BASE_IMAGE:-docker.m.daocloud.io/library/mariadb:11}"
 docker build --platform linux/amd64 --build-arg "MARIADB_BASE_IMAGE=${MARIADB_BASE_IMAGE}" -f "${ROOT_DIR}/docker/Dockerfile" -t "gemini-project:${VERSION}" "${ROOT_DIR}"
 

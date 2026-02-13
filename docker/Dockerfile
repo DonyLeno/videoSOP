@@ -39,8 +39,7 @@ RUN set -eux; \
 
 COPY requirements.txt .
 
-RUN python -m pip install --break-system-packages --no-cache-dir --upgrade setuptools wheel && \
-    pip install --break-system-packages --no-cache-dir --retries 10 --timeout 300 --only-binary=:all: "numpy<2.0.0" "opencv-python-headless>=4.11.0" && \
+RUN pip install --break-system-packages --no-cache-dir --retries 10 --timeout 300 --only-binary=:all: "numpy<2.0.0" "opencv-python-headless>=4.11.0" && \
     pip install --break-system-packages --no-cache-dir --retries 10 --timeout 300 "google-genai>=0.6.0" "Pillow" "mysql-connector-python>=9.0.0" "openai>=1.0.0"
 
 # Copy project files
