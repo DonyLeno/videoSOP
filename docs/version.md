@@ -1,5 +1,9 @@
 # Version History
 
+## v10.6.3
+- **Date**: 2026-02-13
+- **Commit Message**: 修复 mariadb:11 基础镜像下 pip PEP668 安装失败，确保可构建 amd64 tar 包
+
 ## v10.6.2
 - **Date**: 2026-02-13
 - **Commit Message**: 支持通过镜像源构建（避免 DockerHub 超时），并导出 amd64 tar 包
