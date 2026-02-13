@@ -82,7 +82,13 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_HEAD(self):
         parsed_path = urllib.parse.urlparse(self.path)
-        clean_path = os.path.normpath(parsed_path.path)
+        decoded_path = parsed_path.path
+        try:
+            decoded_path = urllib.parse.unquote(decoded_path)
+            decoded_path = urllib.parse.unquote(decoded_path)
+        except Exception:
+            pass
+        clean_path = os.path.normpath(decoded_path)
         if clean_path.startswith("/.."):
             self.send_response(403)
             self.end_headers()
@@ -297,7 +303,13 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             self.path = "/web/index.html"
             return super().do_GET()
 
-        clean_path = os.path.normpath(parsed_path.path)
+        decoded_path = parsed_path.path
+        try:
+            decoded_path = urllib.parse.unquote(decoded_path)
+            decoded_path = urllib.parse.unquote(decoded_path)
+        except Exception:
+            pass
+        clean_path = os.path.normpath(decoded_path)
         if clean_path.startswith("/.."):
             self.send_response(403)
             self.end_headers()

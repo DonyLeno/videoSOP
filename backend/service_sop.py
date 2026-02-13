@@ -119,6 +119,11 @@ def handle_download_folder(handler, parsed_path) -> bool:
     if not path_arg:
         handler.send_json(400, {"error": "missing_path"})
         return True
+    try:
+        path_arg = urllib.parse.unquote(path_arg)
+        path_arg = urllib.parse.unquote(path_arg)
+    except Exception:
+        pass
     if path_arg.startswith("/"):
         path_arg = path_arg[1:]
     real_path = os.path.join(os.getcwd(), path_arg)
@@ -131,6 +136,7 @@ def handle_download_folder(handler, parsed_path) -> bool:
         return True
     try:
         mem_zip = io.BytesIO()
+        file_count = 0
         with zipfile.ZipFile(mem_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
             for root, _, files in os.walk(real_path):
                 for file in files:
@@ -138,14 +144,22 @@ def handle_download_folder(handler, parsed_path) -> bool:
                         file_path = os.path.join(root, file)
                         arcname = os.path.relpath(file_path, real_path)
                         zf.write(file_path, arcname)
+                        file_count += 1
         mem_zip.seek(0)
-        zip_filename = os.path.basename(real_path.rstrip("/")) + ".zip"
+        if file_count == 0:
+            handler.send_json(404, {"error": "empty_folder", "details": "目录下未找到可下载的 .mp4/.md 文件"})
+            return True
+
+        raw_name = os.path.basename(real_path.rstrip("/")) + ".zip"
+        ascii_fallback = "".join([c for c in raw_name if ord(c) < 128 and c not in ['"', "\\"]]).strip() or "sop_clips.zip"
+        utf8_name = urllib.parse.quote(raw_name, safe="")
+        zip_bytes = mem_zip.getvalue()
         handler.send_response(200)
         handler.send_header("Content-Type", "application/zip")
-        handler.send_header("Content-Disposition", f'attachment; filename="{zip_filename}"')
-        handler.send_header("Content-Length", str(len(mem_zip.getvalue())))
+        handler.send_header("Content-Disposition", f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{utf8_name}')
+        handler.send_header("Content-Length", str(len(zip_bytes)))
         handler.end_headers()
-        handler.wfile.write(mem_zip.getvalue())
+        handler.wfile.write(zip_bytes)
         return True
     except Exception as e:
         handler.send_json(500, {"error": "download_failed", "details": str(e)})
@@ -209,10 +223,12 @@ def handle_export_sop_clips(handler, user: dict) -> bool:
         sop_groups.append({"sop": current_sop, "actions": current_group})
 
     export_count = 0
+    error_samples = []
     base_dir = os.path.dirname(real_file_path)
     file_name_no_ext = os.path.splitext(os.path.basename(real_file_path))[0]
     output_root = os.path.join(base_dir, file_name_no_ext)
     try:
+        os.makedirs(output_root, exist_ok=True)
         for group in sop_groups:
             sop_name = group["sop"]
             if not sop_name:
@@ -274,17 +290,33 @@ def handle_export_sop_clips(handler, user: dict) -> bool:
                 "aac",
                 out_path,
             ]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            env = os.environ.copy()
+            env.setdefault("LANG", "C.UTF-8")
+            env.setdefault("LC_ALL", "C.UTF-8")
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
             if result.returncode != 0:
                 try:
-                    print(f"FFmpeg error for {filename}: {result.stderr.decode('utf-8')}")
+                    err_text = result.stderr.decode("utf-8", errors="replace")
+                    if len(error_samples) < 5:
+                        error_samples.append({"file": filename, "stderr": err_text[-2000:]})
                 except Exception:
                     pass
             else:
                 export_count += 1
+        if export_count == 0:
+            handler.send_json(
+                500,
+                {
+                    "error": "export_failed",
+                    "details": "FFmpeg 未成功导出任何片段",
+                    "count": export_count,
+                    "output_dir": output_root,
+                    "errors": error_samples,
+                },
+            )
+            return True
         handler.send_json(200, {"status": "success", "count": export_count, "output_dir": output_root})
         return True
     except Exception as e:
         handler.send_json(500, {"error": f"export_failed: {str(e)}"})
         return True
-

@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import os
+import time
 from typing import Optional
 
 import mysql.connector  # type: ignore
@@ -50,7 +51,18 @@ def verify_password(password: str, stored: Optional[str]) -> bool:
 
 
 def ensure_database() -> None:
-    conn = get_db_connection(use_database=False)
+    last_err: Optional[Exception] = None
+    conn = None
+    for _ in range(60):
+        try:
+            conn = get_db_connection(use_database=False)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            time.sleep(1)
+    if conn is None:
+        raise last_err or RuntimeError("db_connect_failed")
     cursor = conn.cursor()
     cursor.execute(
         f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DATABASE}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
@@ -58,7 +70,18 @@ def ensure_database() -> None:
     cursor.close()
     conn.close()
 
-    conn = get_db_connection(use_database=True)
+    last_err = None
+    conn = None
+    for _ in range(60):
+        try:
+            conn = get_db_connection(use_database=True)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            time.sleep(1)
+    if conn is None:
+        raise last_err or RuntimeError("db_connect_failed")
     cursor = conn.cursor()
     cursor.execute(
         """
@@ -101,4 +124,3 @@ def ensure_database() -> None:
         )
     cursor.close()
     conn.close()
-

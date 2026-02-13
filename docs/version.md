@@ -1,5 +1,9 @@
 # Version History
 
+## v10.6.1
+- **Date**: 2026-02-13
+- **Commit Message**: 修复特殊字符结果视频无法播放；修复 SOP 下载与导出兼容性；优化 Docker/DB 启动稳定性
+
 ## v10.6
 - **Date**: 2026-02-11
 - **Commit Message**: 重构工程结构（backend/、docker/、docs/）并整理部署脚本

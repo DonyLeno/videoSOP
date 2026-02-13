@@ -5,15 +5,15 @@ set -e
 echo "Building Docker image for linux/amd64..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-VERSION="v10.6"
+VERSION="v10.6.1"
 docker build --platform linux/amd64 -f "${ROOT_DIR}/docker/Dockerfile" -t "gemini-project:${VERSION}" "${ROOT_DIR}"
 
 # Also tag as latest for docker-compose compatibility
 docker tag "gemini-project:${VERSION}" gemini-project:latest
 
 # Save the image to a tar file
-OUT_TAR_VERSIONED="${ROOT_DIR}/gemini-project-${VERSION}-amd64.tar"
-OUT_TAR_LATEST="${ROOT_DIR}/gemini-project.tar"
+OUT_TAR_VERSIONED="${SCRIPT_DIR}/gemini-project-${VERSION}-amd64.tar"
+OUT_TAR_LATEST="${SCRIPT_DIR}/gemini-project.tar"
 echo "Saving image to ${OUT_TAR_VERSIONED}..."
 docker save -o "${OUT_TAR_VERSIONED}" "gemini-project:${VERSION}" gemini-project:latest
 cp -f "${OUT_TAR_VERSIONED}" "${OUT_TAR_LATEST}"
