@@ -2,6 +2,7 @@ import json
 import os
 from typing import Dict, List
 
+from backend.app_config import APP_VERSION
 from backend.app_results_md import parse_md_content, update_md_content
 
 
@@ -164,6 +165,8 @@ def handle_update_result(handler) -> bool:
 
 def get_latest_version() -> str:
     try:
+        if APP_VERSION:
+            return APP_VERSION
         candidate_paths = [
             "docs/version.md",
             "version.md",

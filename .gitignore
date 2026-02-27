@@ -15,3 +15,5 @@ result/
 data/*
 !data/prompt.md
 !data/SOP.md
+mysql/
+mysql_arm64/

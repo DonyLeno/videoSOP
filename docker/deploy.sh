@@ -19,9 +19,20 @@ if [ ! -f "$TAR_FILE" ]; then
     fi
 fi
 
+APP_IMAGE_TAG="${APP_IMAGE_TAG:-}"
+if [ -z "${APP_IMAGE_TAG}" ]; then
+    base="$(basename "$TAR_FILE")"
+    if [[ "$base" == gemini-project-*-amd64.tar ]]; then
+        APP_IMAGE_TAG="${base#gemini-project-}"
+        APP_IMAGE_TAG="${APP_IMAGE_TAG%-amd64.tar}"
+    fi
+fi
+export APP_IMAGE_TAG
+
 # 检查目录是否存在，不存在则创建
 mkdir -p data
 mkdir -p result
+mkdir -p mysql
 
 echo "Step 1: Loading Docker image from $TAR_FILE..."
 docker load -i "$TAR_FILE"
@@ -34,4 +45,5 @@ echo "Deployment successfully completed!"
 echo "Service is running at: http://localhost:8000"
 echo "Data directory: $(pwd)/data"
 echo "Result directory: $(pwd)/result"
+echo "MySQL directory: $(pwd)/mysql"
 echo "================================================="

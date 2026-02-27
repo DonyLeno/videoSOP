@@ -1,0 +1,85 @@
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="menu-button" type="button" data-menu-button>☰</button>
+    <div class="page-title" data-i18n="users_title">用户管理</div>
+  </div>
+  <div class="topbar-right">
+    <button class="btn" id="btnCreateUser" data-i18n="user_create">新增用户</button>
+  </div>
+</div>
+<div class="panel">
+  <div class="panel-header">
+    <div class="user-toolbar">
+      <div data-i18n="user_list">用户列表</div>
+      <button class="btn" style="padding: 5px 10px; font-size: 12px;" id="btnRefreshUsers" data-i18n="refresh">刷新</button>
+    </div>
+  </div>
+  <div class="panel-body" style="overflow-x: auto;">
+    <table class="user-table" id="userTable">
+      <thead>
+        <tr>
+          <th data-i18n="user_username">用户名</th>
+          <th data-i18n="user_role">角色</th>
+          <th data-i18n="user_model">模型</th>
+          <th data-i18n="user_email">邮箱</th>
+          <th data-i18n="user_api_key">API Key</th>
+          <th data-i18n="user_status">状态</th>
+          <th data-i18n="user_created_at">创建时间</th>
+          <th data-i18n="user_data_size">数据量</th>
+          <th data-i18n="user_actions">操作</th>
+        </tr>
+      </thead>
+      <tbody id="userTableBody"></tbody>
+    </table>
+    <div id="userEmpty" style="color: var(--muted); font-size: 13px; padding: 12px 0; display: none;" data-i18n="no_users">暂无用户</div>
+  </div>
+</div>
+
+<div id="userModal" class="modal-overlay">
+  <div class="modal-content">
+    <div class="modal-header" id="userModalTitle" data-i18n="user_create">新增用户</div>
+    <div class="modal-form-group">
+      <label data-i18n="user_username">用户名</label>
+      <input type="text" id="userFormUsername" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label id="userFormPasswordLabel" data-i18n="user_password">密码</label>
+      <input type="password" id="userFormPassword" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="user_email">邮箱</label>
+      <input type="text" id="userFormEmail" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="user_api_key">API Key</label>
+      <input type="text" id="userFormApiKey" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="user_role">角色</label>
+      <select id="userFormRole" class="modal-input">
+        <option value="user" data-i18n="role_user">普通用户</option>
+        <option value="admin" data-i18n="role_admin">管理员</option>
+      </select>
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="user_model">模型</label>
+      <select id="userFormModel" class="modal-input">
+        <option value="kimi-2.5" selected>GenieviewK2.5 (长文本/视觉增强)</option>
+        <option value="gemini2.5flash">Genie 2.5 Flash</option>
+        <option value="gemini3flash">Genie 3 Flash</option>
+      </select>
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="user_status">状态</label>
+      <select id="userFormStatus" class="modal-input">
+        <option value="active" data-i18n="status_active">启用</option>
+        <option value="inactive" data-i18n="status_inactive">停用</option>
+      </select>
+    </div>
+    <div class="login-error" id="userFormError"></div>
+    <div class="modal-actions">
+      <button class="btn-modal btn-cancel" id="btnUserCancel" data-i18n="cancel">取消</button>
+      <button class="btn-modal btn-save" id="btnUserSave" data-i18n="save">保存</button>
+    </div>
+  </div>
+</div>

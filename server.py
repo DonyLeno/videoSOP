@@ -19,13 +19,7 @@ from backend.service_results import (
     handle_result_details,
     handle_update_result,
 )
-from backend.service_sop import (
-    handle_download_folder,
-    handle_export_sop_clips,
-    handle_get_sop_content,
-    handle_set_sop_content,
-    handle_sop_clips_info,
-)
+from backend.service_sop import handle_get_sop_content, handle_set_sop_content
 from backend.service_users import (
     handle_create_user,
     handle_list_users,
@@ -210,13 +204,6 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             handle_update_result(self)
             return
 
-        if parsed_path.path == "/api/merge_kaizen":
-            self.send_json(501, {"error": "not_implemented"})
-            return
-
-        if parsed_path.path == "/api/export_sop_clips":
-            handle_export_sop_clips(self, user)
-            return
 
         if parsed_path.path == "/api/upload":
             handle_upload(self)
@@ -268,13 +255,6 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 handle_task_status(self, user)
                 return
 
-            if parsed_path.path == "/api/sop_clips_info":
-                handle_sop_clips_info(self, parsed_path)
-                return
-
-            if parsed_path.path == "/api/download_folder":
-                handle_download_folder(self, parsed_path)
-                return
 
             user = self.require_auth()
             if not user:

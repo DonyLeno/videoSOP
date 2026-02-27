@@ -1,10 +1,13 @@
 ARG MARIADB_BASE_IMAGE=mariadb:11
 FROM ${MARIADB_BASE_IMAGE}
+ARG TARGETARCH
+ARG APP_VERSION=""
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PIP_NO_CACHE_DIR=1
+ENV APP_VERSION=${APP_VERSION}
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 
@@ -27,9 +30,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3 /usr/local/bin/python && ln -sf /usr/bin/pip3 /usr/local/bin/pip
 
 RUN set -eux; \
+    case "${TARGETARCH:-}" in \
+        amd64) ffmpeg_pkg="ffmpeg-release-amd64-static.tar.xz" ;; \
+        arm64) ffmpeg_pkg="ffmpeg-release-arm64-static.tar.xz" ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH:-}" >&2; exit 1 ;; \
+    esac; \
     tmpdir="$(mktemp -d)"; \
     cd "${tmpdir}"; \
-    curl -L -o ffmpeg.tar.xz "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"; \
+    curl -L -o ffmpeg.tar.xz "https://johnvansickle.com/ffmpeg/releases/${ffmpeg_pkg}"; \
     tar -xJf ffmpeg.tar.xz; \
     dir="$(find . -maxdepth 1 -type d -name 'ffmpeg-*-static' | head -n 1)"; \
     mv "${dir}/ffmpeg" "${dir}/ffprobe" /usr/local/bin/; \

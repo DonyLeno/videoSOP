@@ -1,14 +1,14 @@
 services:
   gemini:
-    image: gemini-project:latest
+    image: gemini-project:${APP_IMAGE_TAG:-latest}
     container_name: gemini-server
-    platform: linux/amd64
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     ports:
       - "${HOST_PORT:-8000}:8000"
     volumes:
       - ../data:/app/data
       - ../result:/app/result
-      - gemini_mysql:/var/lib/mysql
+      - ../mysql:/var/lib/mysql
     environment:
       - MYSQL_HOST=127.0.0.1
       - MYSQL_PORT=3306
@@ -16,6 +16,3 @@ services:
       - MYSQL_PASSWORD=123456
       - MYSQL_DATABASE=geniview
     restart: unless-stopped
-
-volumes:
-  gemini_mysql:

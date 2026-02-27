@@ -1,0 +1,171 @@
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="menu-button" type="button" data-menu-button>☰</button>
+    <div class="page-title" data-i18n="review_title">结果查看</div>
+  </div>
+  <div class="topbar-right">
+    <select id="reviewResultSelect" class="form-control" style="width: 200px; display: none;" tabindex="-1">
+      <option value="" data-i18n="review_select_result">选择结果文件...</option>
+    </select>
+    <select id="reviewVideoSelect" class="form-control" style="width: 200px;">
+      <option value="" data-i18n="review_select_video">选择视频文件...</option>
+    </select>
+    <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="loadResultList()" data-i18n="refresh">刷新</button>
+  </div>
+</div>
+
+<div class="review-layout">
+  <div class="panel">
+    <div class="panel-header">
+      <div id="videoName" data-i18n="review_no_video">未选择视频</div>
+      <div class="pill" id="nowPlaying">00:00</div>
+    </div>
+    <div class="panel-body" style="background: #000; display: flex; align-items: center; justify-content: center;">
+      <video id="video" controls playsinline></video>
+    </div>
+    <div class="panel-body review-timeline-bar">
+      <div id="actionTimeline" class="action-timeline" tabindex="0">
+        <div id="actionTimelineSegments" class="action-timeline-segments"></div>
+        <div id="actionTimelinePlayhead" class="action-timeline-playhead"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div data-i18n-html="review_actions">Actions <span class="pill" id="actionCount">0</span></div>
+    </div>
+    <div class="panel-body actions-panel-body">
+    <div class="actions-list-header" id="actionsListHeader"></div>
+    <div id="actionsList" class="actions-list"></div>
+</div>
+  </div>
+</div>
+
+<div id="legacyStatsView" style="display: none;">
+  <div class="stats-grid">
+     <div class="stat-card">
+       <div class="stat-title" data-i18n="stat_total_actions">动作总数</div>
+       <div class="stat-value" id="statTotal">-</div>
+     </div>
+     <div class="stat-card">
+       <div class="stat-title" data-i18n="stat_action_types">动作种类</div>
+       <div class="stat-value" id="statTypes">-</div>
+     </div>
+     <div class="stat-card">
+       <div class="stat-title" data-i18n="stat_avg_duration">平均时长</div>
+       <div class="stat-value" id="statAvg">-</div>
+     </div>
+  </div>
+
+  <div class="panel" style="margin-top: 20px;">
+      <div class="panel-header" data-i18n="stat_distribution">动作种类分布 (柱状图)</div>
+      <div class="panel-body" style="display: block !important; height: auto !important; min-height: 520px !important;">
+          <div style="display: block; width: 100%; height: 500px; overflow: hidden;">
+              <canvas id="actionChart" width="800" height="500"></canvas>
+          </div>
+      </div>
+  </div>
+
+  <div class="advice-panel">
+      <div class="panel-header" style="padding:0; margin-bottom:15px; border:0" data-i18n="process_advice">工艺流程改进建议</div>
+      <div id="adviceList">
+          <div style="color:var(--muted)" data-i18n="no_advice">暂无建议</div>
+      </div>
+  </div>
+</div>
+
+<div id="mdResultView" class="md-result-view" style="display:none; margin-top: 20px;">
+    <div class="md-overview-row">
+        <div class="panel">
+            <div class="panel-header" data-i18n="overview_title">工序概览 (Overview)</div>
+            <div class="panel-body md-content" id="mdOverview"></div>
+        </div>
+        <div class="panel">
+            <div class="panel-header" data-i18n="station_compare_title">工位动作时间对比</div>
+            <div class="panel-body">
+                <div id="stationCompareControls" class="station-compare-controls"></div>
+                <div id="stationCompareChart"></div>
+            </div>
+        </div>
+    </div>
+    <div class="panel">
+        <div class="panel-header" data-i18n="deep_dive_title">深度诊断发现 (Deep Dive Findings)</div>
+        <div class="panel-body md-content" id="mdDeepDive"></div>
+    </div>
+    <div class="panel">
+        <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <span data-i18n="kaizen_title">改善机会 (Kaizen Opportunities)</span>
+        </div>
+        <div class="panel-body md-content" id="mdKaizen"></div>
+    </div>
+</div>
+
+<div id="contextMenu" class="context-menu">
+  <div class="context-menu-item" id="btnEditAction" data-i18n="edit_action">编辑动作</div>
+  <div class="context-menu-item" id="btnAddAction" data-i18n="add_action">新增动作</div>
+  <div class="context-menu-item" id="btnDeleteAction" data-i18n="delete_action">删除动作</div>
+</div>
+
+<div id="editModal" class="modal-overlay">
+  <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-header" data-i18n="edit_action">编辑动作</div>
+    
+    <div class="modal-row" style="display: flex; gap: 10px;">
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="edit_index">序号</label>
+            <input type="text" id="editIndex" class="modal-input" disabled>
+        </div>
+        <div class="modal-form-group" style="flex: 3;">
+            <label>动作描述 (Therbligs)</label>
+            <input type="text" id="editLabel" class="modal-input">
+        </div>
+    </div>
+
+    <div class="modal-row" style="display: flex; gap: 10px;">
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="is_process">是否加工</label>
+            <input type="text" id="editIsProcess" class="modal-input">
+        </div>
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="is_move">是否搬运</label>
+            <input type="text" id="editIsMove" class="modal-input">
+        </div>
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="is_check">是否检查</label>
+            <input type="text" id="editIsCheck" class="modal-input">
+        </div>
+    </div>
+
+    <div class="modal-row" style="display: flex; gap: 10px;">
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="is_wait">是否等待</label>
+            <input type="text" id="editIsWait" class="modal-input">
+        </div>
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="is_store">是否存储</label>
+            <input type="text" id="editIsStore" class="modal-input">
+        </div>
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="value_added">增值/非增值</label>
+            <input type="text" id="editValueAdded" class="modal-input">
+        </div>
+    </div>
+
+    <div class="modal-row" style="display: flex; gap: 10px;">
+        <div class="modal-form-group" style="flex: 2;">
+            <label data-i18n="hands">左右手</label>
+            <input type="text" id="editHands" class="modal-input">
+        </div>
+        <div class="modal-form-group" style="flex: 1;">
+            <label data-i18n="variation_source">波动来源</label>
+            <input type="text" id="editVariation" class="modal-input">
+        </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-modal btn-cancel" id="btnCancelEdit" data-i18n="cancel">取消</button>
+      <button class="btn-modal btn-save" id="btnSaveEdit" data-i18n="save">保存</button>
+    </div>
+  </div>
+</div>

@@ -10,7 +10,7 @@ import time
 from typing import Dict, List, Optional
 
 from backend.app_config import ANALYZE_CONCURRENCY
-from backend.app_db import get_db_connection
+from backend.app_db import get_user_api_key_model
 
 
 USER_TASKS: Dict[str, Dict[str, object]] = {}
@@ -61,6 +61,7 @@ def background_analyze_task(
     model: str,
     fps: float,
     api_key: str,
+    prompt_file: Optional[str] = None,
     sop_content: Optional[str] = None,
     result_timestamp: Optional[str] = None,
 ) -> None:
@@ -99,6 +100,7 @@ def background_analyze_task(
             env["GOOGLE_API_KEY"] = api_key
 
         python_exe = sys.executable
+        prompt_file_arg = os.path.join("data", "ch_prompt.md")
         cmd_main = [
             python_exe,
             "main.py",
@@ -112,7 +114,7 @@ def background_analyze_task(
             "--frames-dir",
             os.path.join("data", base_name),
             "--prompt-file",
-            "data/prompt.md",
+            prompt_file_arg,
         ]
         if sop_content:
             cmd_main.extend(["--sop-content", sop_content])
@@ -146,6 +148,7 @@ def background_analyze_task(
 
         _set_task_progress(username, "analyze", 0, 0)
         _append_task_log(username, f"[INFO] Starting analysis for {video_path}\n")
+        _append_task_log(username, f"[INFO] Prompt template: {prompt_file_arg}\n")
 
         proc_main = subprocess.Popen(
             cmd_main,
@@ -184,6 +187,10 @@ def background_analyze_task(
                                         batch_count = evt.get("batch_frame_count", 0)
                                         processed = current_batch_start + batch_count
                                         _set_task_progress(username, "analyze", processed, total_images)
+                                    elif evt_type == "moonshot.chat_completions.request":
+                                        _set_task_progress(username, "analyze", 0, total_images)
+                                    elif evt_type == "moonshot.chat_completions.content":
+                                        _set_task_progress(username, "analyze", total_images, total_images)
                                     elif evt_type == "kimi.files.cleared":
                                         count = evt.get("count", 0)
                                         log(f"[INFO] 已清理 Kimi 云端历史文件: {count} 个\n".encode("utf-8"))
@@ -293,22 +300,13 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
         text_model = str(raw_model).strip() if raw_model is not None else ""
         model = "kimi-2.5"
 
-        fps_raw = data.get("fps", 2.0)
+        fps_raw = data.get("fps", 3.0)
         api_key = None
         user_model = None
         username = user.get("username") if isinstance(user, dict) else None
         if username:
             try:
-                conn = get_db_connection(use_database=True)
-                cursor = conn.cursor()
-                cursor.execute("SELECT api_key, model FROM users WHERE username=%s", (username,))
-                row = cursor.fetchone()
-                cursor.close()
-                conn.close()
-                if row:
-                    api_key = str(row[0]).strip() or None
-                    if row[1]:
-                        user_model = str(row[1]).strip()
+                api_key, user_model = get_user_api_key_model(str(username))
             except Exception as e:
                 handler.send_json(500, {"error": "db_error", "details": str(e)})
                 return True
@@ -322,10 +320,10 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
 
         try:
             fps = float(fps_raw)
-            if fps != fps or fps < 0:
-                fps = 0.0
+            if fps != fps or fps <= 0:
+                fps = 3.0
         except Exception:
-            fps = 0.0
+            fps = 3.0
 
         if not video_path:
             handler.send_response(400)
@@ -387,7 +385,9 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
             )
             return True
 
-        prompt_path = os.path.join("data", "prompt.md")
+        ui_lang_raw = handler.headers.get("X-UI-Lang", "") or data.get("ui_lang", "") or ""
+        ui_lang = str(ui_lang_raw).strip().lower()
+        prompt_path = os.path.join("data", "ch_prompt.md")
         if not os.path.exists(prompt_path):
             handler.send_json(
                 500,
@@ -422,14 +422,24 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                     "phase": "analyze",
                     "progress": {"current": 0, "total": image_count},
                     "kind": "analyze",
+                    "prompt_path": prompt_path,
                 }
             t = threading.Thread(
                 target=background_analyze_task,
-                args=(username, video_path, model, fps, api_key, sop_content, timestamp),
+                args=(username, video_path, model, fps, api_key, prompt_path, sop_content, timestamp),
                 daemon=True,
             )
             t.start()
-            handler.send_json(200, {"status": "started", "message": "任务已在后台启动", "video_path": output_video_path})
+            handler.send_json(
+                200,
+                {
+                    "status": "started",
+                    "message": "任务已在后台启动",
+                    "video_path": output_video_path,
+                    "prompt_path": prompt_path,
+                    "ui_lang": ui_lang,
+                },
+            )
             started = True
         except Exception as e:
             handler.send_json(500, {"error": "internal_error", "details": str(e)})
@@ -438,4 +448,3 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
     finally:
         if not started:
             ANALYZE_SEMAPHORE.release()
-

@@ -1,0 +1,115 @@
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="menu-button" type="button" data-menu-button>☰</button>
+    <div class="page-title" data-i18n="detection_title">视觉检测任务</div>
+  </div>
+</div>
+
+<div class="panel" style="max-width: 600px; margin: 0 auto; width: 100%;">
+  <div class="panel-header" data-i18n="detection_new_task">新建任务</div>
+  <div class="panel-body">
+    <div class="form-group" style="display: none;">
+      <label class="form-label" data-i18n="detection_fps_label">FPS (每秒采样帧数)</label>
+      <input type="number" id="detectFps" class="form-control" value="3.0" step="0.1" min="0.1" max="30">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" data-i18n="detection_select_video">选择视频</label>
+      <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+          <select id="detectVideoSelect" class="form-control" style="flex: 1;">
+            <option value="" data-i18n="loading">加载中...</option>
+          </select>
+      </div>
+      
+      <div style="display: flex; gap: 10px; align-items: center; border: 1px dashed var(--border); padding: 10px; border-radius: 8px; flex-wrap: wrap;">
+        <span style="font-size: 12px; color: var(--muted); white-space: nowrap;" data-i18n="upload_to_data">上传视频到 data/:</span>
+        <button id="btnChooseFile" class="btn btn-small" style="padding: 4px 12px; font-size: 12px;" data-i18n="choose_file">选择文件</button>
+        <span id="uploadFileName" style="font-size: 12px; color: var(--muted); flex: 1;" data-i18n="file_not_selected">未选择文件</span>
+        <input type="file" id="uploadInput" accept="video/*" style="display: none;">
+        <button id="btnUpload" class="btn" style="padding: 4px 12px; font-size: 12px;" data-i18n="upload">上传</button>
+      </div>
+      <div id="uploadProgressWrapper" style="margin-top: 8px; display: none;">
+        <div style="font-size: 11px; color: var(--muted); margin-bottom: 2px;" data-i18n="upload_video_label">视频上传</div>
+        <div style="height: 6px; background: var(--border); border-radius: 4px; overflow: hidden;">
+          <div id="uploadVideoProgressBar" style="height: 100%; width: 0%; background: var(--accent2); transition: width 0.2s;"></div>
+        </div>
+        <div id="uploadVideoProgressText" style="margin-top: 4px; font-size: 11px; color: var(--muted);"></div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 8px; margin-bottom: 2px;" data-i18n="preprocess_video_label">视频预处理</div>
+        <div style="height: 6px; background: var(--border); border-radius: 4px; overflow: hidden;">
+          <div id="frameProgressBar" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.2s;"></div>
+        </div>
+        <div id="frameProgressText" style="margin-top: 4px; font-size: 11px; color: var(--muted);"></div>
+      </div>
+    </div>
+    
+    <div class="form-group" style="display: none;">
+      <label class="form-label" data-i18n="detect_model_label">模型</label>
+      <select id="detectModel" class="form-control">
+        <option value="kimi-2.5" data-price-in="0.0" data-price-out="0.0" selected data-i18n="detect_model_default">GenieviewK2.5 (长文本/视觉增强)</option>
+      </select>
+    </div>
+
+    <button id="btnEstimateCost" class="btn" style="width: 100%; margin-bottom: 12px; background: rgba(157, 255, 179, 0.1); color: var(--accent2); border-color: rgba(157, 255, 179, 0.3); display: none;" data-i18n="estimate_cost">预估费用</button>
+    <div id="costEstimate" style="margin-bottom: 16px; padding: 10px; background: rgba(122, 162, 255, 0.1); border-radius: 8px; font-size: 13px; display: none;">
+        <div style="font-weight: bold; color: var(--accent);"><span data-i18n="estimate_cost_label">预估费用:</span> $<span id="costValue">0.0000</span></div>
+        <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">
+          <span data-i18n="cost_based_on">基于:</span>
+          <span id="costDuration">0</span><span data-i18n="cost_seconds_video">s 视频 | 输入 </span>
+          <span id="costTokensIn">0</span><span data-i18n="cost_tokens_out_sep"> | 输出 </span>
+          <span id="costTokensOut">0</span><span data-i18n="cost_tokens_think_sep"> | 思考 </span>
+          <span id="costTokensThink">0</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+          <div>
+            <div style="color: var(--muted); font-size: 11px; margin-bottom: 6px;" data-i18n="estimate_out_tokens">预计输出 tokens</div>
+            <input type="number" id="estimateOutTokens" class="form-control" value="1200" min="0" step="100" style="padding: 8px; font-size: 12px;">
+          </div>
+          <div>
+            <div style="color: var(--muted); font-size: 11px; margin-bottom: 6px;" data-i18n="estimate_think_tokens">预计思考 tokens</div>
+            <input type="number" id="estimateThinkingTokens" class="form-control" value="2000" min="0" step="200" style="padding: 8px; font-size: 12px;">
+          </div>
+        </div>
+        <details style="margin-top: 10px;">
+          <summary style="cursor: pointer; color: var(--muted); font-size: 12px;" data-i18n="cost_details">查看详细公式与中间量</summary>
+          <div style="margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.6;">
+            <div data-i18n-html="cost_formula_1">1) 采样帧数 N = ceil(T × fps) = ceil(<span id="costT">0</span> × <span id="costFps">0</span>) = <span id="costFrames">0</span></div>
+            <div data-i18n-html="cost_formula_2">2) 视觉输入 tokens V = N × k = <span id="costFrames2">0</span> × <span id="costTokPerFrame">258</span> = <span id="costVisionTokens">0</span></div>
+            <div data-i18n-html="cost_formula_3">3) 输入 tokens In = V + P = <span id="costVisionTokens2">0</span> + <span id="costPromptTokens">0</span> = <span id="costInTokens">0</span></div>
+            <div data-i18n-html="cost_formula_4">4) 计费输出 tokens Out_bill = Out + Think = <span id="costOutTokens">0</span> + <span id="costThinkTokens">0</span> = <span id="costBillableOutTokens">0</span></div>
+            <div data-i18n-html="cost_formula_5">5) 输入费用 C_in = In / 1e6 × price_in = <span id="costInTokens2">0</span> / 1e6 × <span id="costPriceIn">0</span> = $<span id="costInUSD">0.0000</span></div>
+            <div data-i18n-html="cost_formula_6">6) 输出费用 C_out = Out_bill / 1e6 × price_out = <span id="costBillableOutTokens2">0</span> / 1e6 × <span id="costPriceOut">0</span> = $<span id="costOutUSD">0.0000</span></div>
+            <div style="margin-top: 6px; color: var(--text);" data-i18n-html="cost_formula_total">总费用 C = C_in + C_out = $<span id="costTotalUSD2">0.0000</span></div>
+            <div style="margin-top: 6px; font-size: 11px;" data-i18n="cost_formula_note">说明：P 为固定提示词/结构化输出等估算 tokens；k 为每帧视觉 token 估算系数；Think 为“思考/推理 tokens”估算（按输出单价计）。</div>
+          </div>
+        </details>
+    </div>
+
+    <button id="btnStartDetect" class="btn" style="width: 100%" data-i18n="start_detect">开始检测与标注</button>
+  </div>
+</div>
+
+<div id="taskRunningBar" class="task-running-bar" style="flex-direction: column; align-items: stretch; gap: 8px;">
+    <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+        <div class="loading-spinner-small"></div>
+        <div data-i18n="detect_running_hint">正在对视频进行检测分析，请稍等...</div>
+    </div>
+    <div style="height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; width: 100%;">
+        <div id="detectionProgressBar" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.2s;"></div>
+    </div>
+    <div id="detectionProgressText" style="text-align: center; font-size: 11px; color: var(--muted);" data-i18n="prepare_text">准备中...</div>
+</div>
+
+<div style="max-width: 600px; margin: 12px auto 0; width: 100%; display: flex; justify-content: flex-end;">
+  <button id="btnToggleDetectLog" class="btn btn-small" data-i18n="collapse_log">折叠日志</button>
+</div>
+<div id="thumbnailContainer" style="display: none; margin-bottom: 10px; text-align: center;">
+    <img id="detectThumbnail" src="" alt="实时检测预览" data-i18n-alt="detect_preview_alt" style="max-width: 320px; max-height: 240px; border: 1px solid var(--border); border-radius: 8px;">
+  </div>
+  <div id="detectLog" class="log-panel" style="display: none;"></div>
+
+<div id="loadingModal" class="modal-overlay">
+  <div class="modal-content" style="width: 300px; text-align: center; padding: 30px;">
+    <div class="loading-spinner"></div>
+    <div style="font-size: 16px; color: var(--text);" data-i18n="detect_running_hint">正在对视频进行检测分析，请稍等...</div>
+  </div>
+</div>

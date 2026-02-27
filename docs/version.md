@@ -1,5 +1,9 @@
 # Version History
 
+## v2.0
+- **Date**: 2026-02-27
+- **Commit Message**: 启动新版本机制：统一 APP_VERSION，前端编辑弹窗与多语言修复
+
 ## v10.6.5
 - **Date**: 2026-02-13
 - **Commit Message**: 避免 Debian pip/ wheel 卸载冲突，确保 Docker 可安装依赖并导出 tar

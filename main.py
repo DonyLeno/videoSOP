@@ -902,7 +902,7 @@ def analyze_video_openai(
         raise ImportError("openai module not installed. Please install 'openai'.")
 
     if sample_fps <= 0:
-        sample_fps = 2.0
+        sample_fps = 3.0
     
     if frames_dir:
         print(f"Loading frames from directory: {frames_dir}", flush=True)
@@ -1048,176 +1048,93 @@ def analyze_video_openai(
         total_tokens_total: Optional[int] = 0
 
         all_actions: List[DetectedAction] = []
-        batch_size = 60 # User requested batch size 60
-        
-        # Create result directory for this video
         video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
-        result_dir = os.path.join("result", video_name)
-        os.makedirs(result_dir, exist_ok=True)
 
-        idx = 0
-        batch_index = 0
-        while idx < len(frames):
-            if progress_callback:
-                progress_callback(idx, len(frames))
-            batch_index += 1
-            current_size = min(batch_size, len(frames) - idx)
-            while True:
-                batch = frames[idx : idx + current_size]
-                messages_content: List[Dict[str, Any]] = [{"type": "text", "text": prompt_text}]
-                for ts, img, _ in batch:
-                    messages_content.append({"type": "text", "text": f"Timestamp: {ts}"})
-                    b64 = encode_image(img)
-                    messages_content.append(
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                    )
-                try:
-                    print(
-                        json.dumps(
-                            {
-                                "event": "moonshot.chat_completions.request.batch",
-                                "model": used_model,
-                                "requested_model": model,
-                                "batch_index": batch_index,
-                                "batch_frame_count": len(batch),
-                                "batch_start": idx,
-                            },
-                            ensure_ascii=False,
-                        ),
-                        flush=True,
-                    )
-                    response = client.chat.completions.create(
-                        model=used_model,
-                        messages=[
-                            {"role": "system", "content": "You are a helpful assistant."},
-                            {"role": "user", "content": messages_content},
-                        ],
-                        temperature=1,
-                        timeout=300.0,
-                    )
-                    content = response.choices[0].message.content or "{}"
+        messages_content: List[Dict[str, Any]] = [{"type": "text", "text": prompt_text}]
+        for ts, img, _ in frames:
+            messages_content.append({"type": "text", "text": f"Timestamp: {ts}"})
+            b64 = encode_image(img)
+            messages_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
 
-                    # Save batch result to MD file
-                    # Naming rule: batch start image suffix + batch end image suffix
-                    start_fname = batch[0][2]
-                    end_fname = batch[-1][2]
-                    
-                    def _get_suffix(s: str) -> str:
-                        if "_" in s:
-                            return s.rsplit("_", 1)[1]
-                        return s
+        if progress_callback:
+            progress_callback(0, len(frames))
 
-                    s_suffix = _get_suffix(start_fname)
-                    e_suffix = _get_suffix(end_fname)
-                    
-                    # Ensure .md extension is appended to the combined suffixes
-                    # Example: 0.00.jpg_2.00.jpg.md (if suffix includes extension)
-                    # Or if user meant just the value, they might want to strip extension.
-                    # But "图片名最后面的_后缀" usually includes extension in this context.
-                    # I'll keep it as is to be safe and strict to instruction.
-                    
-                    batch_md_name = f"{s_suffix}_{e_suffix}.md"
-                    batch_md_path = os.path.join(result_dir, batch_md_name)
-                    
-                    with open(batch_md_path, "w", encoding="utf-8") as f:
-                        f.write(content)
+        print(
+            json.dumps(
+                {
+                    "event": "moonshot.chat_completions.request",
+                    "model": used_model,
+                    "requested_model": model,
+                    "frame_count": len(frames),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
 
-                    print(
-                        json.dumps(
-                            {
-                                "event": "moonshot.chat_completions.content.batch",
-                                "model": used_model,
-                                "requested_model": model,
-                                "batch_index": batch_index,
-                                "batch_frame_count": len(batch),
-                                "batch_start": idx,
-                                "content_preview": _truncate_text(content, 2000),
-                            },
-                            ensure_ascii=False,
-                        ),
-                        flush=True,
-                    )
-                    usage = response.usage
-                    if usage:
-                        prompt_tokens_total = (
-                            None
-                            if prompt_tokens_total is None
-                            else int(prompt_tokens_total) + int(getattr(usage, "prompt_tokens", 0) or 0)
-                        )
-                        completion_tokens_total = (
-                            None
-                            if completion_tokens_total is None
-                            else int(completion_tokens_total)
-                            + int(getattr(usage, "completion_tokens", 0) or 0)
-                        )
-                        total_tokens_total = (
-                            None
-                            if total_tokens_total is None
-                            else int(total_tokens_total) + int(getattr(usage, "total_tokens", 0) or 0)
-                        )
-                    if not prompt_override:
-                        data = _extract_json_content(content)
-                        model_output: ModelOutput = {}
-                        if isinstance(data, dict):
-                            model_output = data  # type: ignore[assignment]
-                        elif isinstance(data, list):
-                            model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
-                        batch_actions = parse_actions(model_output.get("actions"))
-                        # Apply offset as per user requirement for batches
-                        time_offset = (batch_index - 1) * 60.0
-                        if time_offset > 0:
-                            threshold = time_offset - 5.0
-                            for act in batch_actions:
-                                start_t = float(act.get("start_time", 0))
-                                end_t = float(act.get("end_time", 0))
-                                if start_t < threshold:
-                                    act["start_time"] = start_t + time_offset
-                                    act["end_time"] = end_t + time_offset
-                        all_actions.extend(batch_actions)
-                    break
-                except Exception as e:
-                    # Fallback Logic for Genie 3 Flash -> Genie 2.5 Flash
-                    if used_model == "gemini-2.0-flash":
-                         print(f"[WARNING] Model {used_model} failed with error: {e}. Falling back to gemini-1.5-flash (Genie 2.5).")
-                         used_model = "gemini-1.5-flash"
-                         continue
-
-                    msg = str(e).lower()
-                    if "timed out" in msg or "timeout" in msg:
-                        if current_size > 4:
-                            current_size = max(4, current_size // 2)
-                            continue
-                        _sleep_backoff(1, 1.0, 5.0)
-                        continue
-                    if current_size > 4 and (
-                        "context" in msg
-                        or "too large" in msg
-                        or "413" in msg
-                        or "maximum" in msg
-                        or "payload" in msg
-                    ):
-                        current_size = max(4, current_size // 2)
-                        continue
-                    raise
-            idx += current_size
-
-        # Python Merge Strategy (Manual Merge with Time Offset)
-        print("Starting Python merge of batch files...", flush=True)
         try:
-            # Ensure result directory exists
-            if not os.path.exists(result_dir):
-                print(f"[WARNING] Result directory {result_dir} does not exist. Creating empty result.", flush=True)
-                final_content = "| 序号 | 动作描述 | SOP 操作步骤 | 左手状态 | 右手状态 | 预估耗时(s) | 增值/非增值 | 时间段 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
-            else:
-                final_content = _merge_batches_python(result_dir, video_name, batch_index)
-            
+            response = client.chat.completions.create(
+                model=used_model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": messages_content},
+                ],
+                temperature=1,
+                timeout=300.0,
+            )
+            content = response.choices[0].message.content or "{}"
+
+            print(
+                json.dumps(
+                    {
+                        "event": "moonshot.chat_completions.content",
+                        "model": used_model,
+                        "requested_model": model,
+                        "frame_count": len(frames),
+                        "content_preview": _truncate_text(content, 2000),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+
+            usage = response.usage
+            if usage:
+                prompt_tokens_total = (
+                    None
+                    if prompt_tokens_total is None
+                    else int(prompt_tokens_total) + int(getattr(usage, "prompt_tokens", 0) or 0)
+                )
+                completion_tokens_total = (
+                    None
+                    if completion_tokens_total is None
+                    else int(completion_tokens_total) + int(getattr(usage, "completion_tokens", 0) or 0)
+                )
+                total_tokens_total = (
+                    None
+                    if total_tokens_total is None
+                    else int(total_tokens_total) + int(getattr(usage, "total_tokens", 0) or 0)
+                )
+
+            if not prompt_override:
+                data = _extract_json_content(content)
+                model_output: ModelOutput = {}
+                if isinstance(data, dict):
+                    model_output = data  # type: ignore[assignment]
+                elif isinstance(data, list):
+                    model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
+                all_actions.extend(parse_actions(model_output.get("actions")))
+
             final_md_path = os.path.join("result", f"{video_name}.md")
             with open(final_md_path, "w", encoding="utf-8") as f:
-                f.write(final_content)
-            print(f"Successfully merged {batch_index} batches into {final_md_path} using Python merge", flush=True)
+                f.write(content)
         except Exception as e:
-             print(f"[ERROR] Python Merge failed: {e}", flush=True)
-             raise RuntimeError(f"Python Merge failed: {e}")
+            print(f"[ERROR] Request failed: {e}", flush=True)
+            raise
+
+        if progress_callback:
+            progress_callback(len(frames), len(frames))
+
         actions = _merge_adjacent_actions(all_actions)
         computed_stats = compute_stats(actions)
 
@@ -1359,7 +1276,7 @@ def analyze_video(
     # 3. MD output and merging
     
     if sample_fps <= 0:
-        sample_fps = 2.0
+        sample_fps = 3.0
     
     frames_data: List[Any] = []
     if frames_dir:
@@ -1389,10 +1306,6 @@ def analyze_video(
     result_dir = os.path.join("result", video_name)
     os.makedirs(result_dir, exist_ok=True)
 
-    batch_size = 60
-    idx = 0
-    batch_index = 0
-    
     used_model = normalized
     # Fallback setup
     fallback_model = "gemini-1.5-flash"
@@ -1401,90 +1314,49 @@ def analyze_video(
     completion_tokens_total = 0
     total_tokens_total = 0
 
-    while idx < len(frames):
-        batch_index += 1
-        current_size = min(batch_size, len(frames) - idx)
-        batch = frames[idx : idx + current_size]
-        
-        # Build contents for Gemini
-        # Interleave text and images
-        contents: List[Any] = [prompt_text]
-        for ts, img, _ in batch:
-            contents.append(f"Timestamp: {ts}")
-            contents.append(img)
-            
-        print(
-            json.dumps(
-                {
-                    "event": "gemini.generate_content.request.batch",
-                    "model": used_model,
-                    "batch_index": batch_index,
-                    "batch_frame_count": len(batch),
-                    "batch_start": idx,
-                },
-                ensure_ascii=False,
-            ),
-            flush=True,
+    contents: List[Any] = [prompt_text]
+    for ts, img, _ in frames:
+        contents.append(f"Timestamp: {ts}")
+        contents.append(img)
+
+    print(
+        json.dumps(
+            {
+                "event": "gemini.generate_content.request.batch",
+                "model": used_model,
+                "batch_index": 1,
+                "batch_frame_count": len(frames),
+                "batch_start": 0,
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+
+    try:
+        config = {}
+        resp, actual_model = _generate_content_with_retry(
+            client,
+            used_model,
+            contents,
+            config,
+            fallback_model=fallback_model,
         )
 
-        try:
-            # Config
-            config = {} # Default config
-            
-            resp, actual_model = _generate_content_with_retry(
-                client,
-                used_model,
-                contents,
-                config,
-                fallback_model=fallback_model
-            )
-            
-            content = getattr(resp, "text", "") or ""
-            
-            # Save batch result to MD file
-            start_fname = batch[0][2]
-            end_fname = batch[-1][2]
-            
-            def _get_suffix(s: str) -> str:
-                if "_" in s:
-                    return s.rsplit("_", 1)[1]
-                return s
+        final_content = getattr(resp, "text", "") or ""
 
-            s_suffix = _get_suffix(start_fname)
-            e_suffix = _get_suffix(end_fname)
-            batch_md_name = f"{s_suffix}_{e_suffix}.md"
-            batch_md_path = os.path.join(result_dir, batch_md_name)
-            
-            with open(batch_md_path, "w", encoding="utf-8") as f:
-                f.write(content)
-                
-            # Usage tracking
-            usage = getattr(resp, "usage_metadata", None)
-            if usage:
-                prompt_tokens_total += getattr(usage, "prompt_token_count", 0) or 0
-                completion_tokens_total += getattr(usage, "candidates_token_count", 0) or 0
-                total_tokens_total += getattr(usage, "total_token_count", 0) or 0
-
-        except Exception as e:
-            print(f"[ERROR] Batch {batch_index} failed: {e}", flush=True)
-            # Depending on requirements, we might want to continue or raise.
-            # Kimi implementation raises or continues depending on error.
-            # Here we raise to ensure visibility, or we could skip.
-            raise e
-
-        idx += current_size
-
-    # Merge Batches
-    print("Starting Python merge of batch files...", flush=True)
-    try:
-        final_content = _merge_batches_python(result_dir, video_name, batch_index)
         final_md_path = os.path.join("result", f"{video_name}.md")
         with open(final_md_path, "w", encoding="utf-8") as f:
             f.write(final_content)
-        print(f"Successfully merged {batch_index} batches into {final_md_path}", flush=True)
+
+        usage = getattr(resp, "usage_metadata", None)
+        if usage:
+            prompt_tokens_total += getattr(usage, "prompt_token_count", 0) or 0
+            completion_tokens_total += getattr(usage, "candidates_token_count", 0) or 0
+            total_tokens_total += getattr(usage, "total_token_count", 0) or 0
     except Exception as e:
-        print(f"[ERROR] Python Merge failed: {e}", flush=True)
-        final_content = ""
+        print(f"[ERROR] Request failed: {e}", flush=True)
+        raise e
 
     # Construct result object
     # Since we are using prompt_override (SOP mode), actions/stats are empty as per Kimi parity
@@ -1608,9 +1480,6 @@ def main() -> None:
 
     frames_dir = str(args.frames_dir or "").strip() or None
     prompt_override = load_prompt_from_file(str(args.prompt_file or "data/prompt.md").strip())
-
-    sop_override = args.sop_content or load_prompt_from_file("data/SOP.md")
-    prompt_override = _merge_sop_into_prompt(prompt_override, sop_override)
 
     out_path = args.out or default_result_path(args.video)
     if not args.out and prompt_override:

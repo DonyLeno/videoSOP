@@ -1,6 +1,8 @@
 import os
 
 
+VERSION = "v2.0"
+
 PORT = int(os.environ.get("PORT", "8000"))
 
 try:
@@ -10,6 +12,7 @@ try:
 except Exception:
     pass
 
+APP_VERSION = os.environ.get("APP_VERSION", "").strip()
 
 MYSQL_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
 MYSQL_PORT = int(os.environ.get("MYSQL_PORT", "3306"))
@@ -22,4 +25,3 @@ TOKEN_TTL_SECONDS = int(os.environ.get("TOKEN_TTL_SECONDS", str(8 * 60 * 60)))
 ANALYZE_CONCURRENCY = int(os.environ.get("ANALYZE_CONCURRENCY", "1") or "1")
 if ANALYZE_CONCURRENCY < 1:
     ANALYZE_CONCURRENCY = 1
-

@@ -61,6 +61,79 @@ def ensure_720p(video_path: str) -> None:
         return
 
 
+def _get_video_duration(video_path: str):
+    duration = None
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            video_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode == 0:
+        out = (probe.stdout or "").strip()
+        if out:
+            try:
+                duration = float(out)
+            except Exception:
+                duration = None
+    if duration is None:
+        try:
+            import cv2  # type: ignore
+
+            cap = cv2.VideoCapture(video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS) or 0
+            frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+            cap.release()
+            if fps > 0 and frames > 0:
+                duration = float(frames) / float(fps)
+        except Exception:
+            duration = None
+    return duration
+
+
+def _trim_video_to_180(video_path: str) -> bool:
+    duration = _get_video_duration(video_path)
+    if duration is not None and duration <= 180:
+        return True
+    base, ext = os.path.splitext(video_path)
+    trimmed_path = f"{base}_trim180{ext or '.mp4'}"
+    trim = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+            "-t",
+            "180",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            trimmed_path,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if trim.returncode == 0 and os.path.exists(trimmed_path):
+        os.replace(trimmed_path, video_path)
+        return True
+    if os.path.exists(trimmed_path):
+        os.remove(trimmed_path)
+    return False
+
+
 def handle_upload(handler) -> bool:
     try:
         filename = handler.headers.get("X-Filename")
@@ -82,6 +155,9 @@ def handle_upload(handler) -> bool:
                     break
                 f.write(chunk)
                 bytes_read += len(chunk)
+        if not _trim_video_to_180(save_path):
+            handler.send_json(500, {"error": "trim_failed"})
+            return True
         handler.send_json(200, {"status": "success", "path": save_path})
         return True
     except Exception as e:
@@ -98,13 +174,7 @@ def handle_extract_frames(handler, user: dict) -> bool:
         except Exception:
             data = {}
         video_path = str(data.get("video_path") or "").strip()
-        fps_raw = data.get("fps", 2.0)
-        try:
-            fps = float(fps_raw)
-            if fps <= 0:
-                fps = 1.0
-        except Exception:
-            fps = 1.0
+        fps = 3.0
         if not video_path:
             handler.send_json(400, {"error": "missing_video_path"})
             return True
@@ -112,6 +182,10 @@ def handle_extract_frames(handler, user: dict) -> bool:
             video_path = os.path.join("data", os.path.basename(video_path))
         if not os.path.exists(video_path):
             handler.send_json(404, {"error": "video_not_found", "path": video_path})
+            return True
+
+        if not _trim_video_to_180(video_path):
+            handler.send_json(500, {"error": "trim_failed"})
             return True
 
         ensure_720p(video_path)
@@ -128,6 +202,7 @@ def handle_extract_frames(handler, user: dict) -> bool:
         video_fps = cap.get(cv2.CAP_PROP_FPS)
         if video_fps <= 0:
             video_fps = fps
+        max_seconds = 180.0
         step = max(1, int(round(video_fps / fps)))
         base_name = os.path.splitext(os.path.basename(video_path))[0] or "frames"
         out_dir = os.path.join("data", base_name)
@@ -139,6 +214,8 @@ def handle_extract_frames(handler, user: dict) -> bool:
         while True:
             ret, frame = cap.read()
             if not ret:
+                break
+            if video_fps > 0 and (frame_index / video_fps) >= max_seconds:
                 break
             if frame_index % step == 0:
                 h, w = frame.shape[:2]
@@ -162,6 +239,9 @@ def handle_extract_frames(handler, user: dict) -> bool:
                 "video_path": video_path,
                 "frames_dir": out_dir,
                 "frame_count": saved,
+                "fps_used": fps,
+                "video_fps": video_fps,
+                "frame_step": step,
             },
         )
         return True
@@ -258,4 +338,3 @@ def handle_video_info(handler, parsed_path) -> bool:
         handler.end_headers()
         handler.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
         return True
-

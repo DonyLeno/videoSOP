@@ -1,0 +1,51 @@
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="menu-button" type="button" data-menu-button>☰</button>
+    <div class="page-title" data-i18n="calculator_title">费用计算器</div>
+  </div>
+</div>
+<div class="panel" style="max-width: 600px; margin: 0 auto; width: 100%;">
+  <div class="panel-header" data-i18n="calculator_header">Token 费用预估</div>
+  <div class="panel-body">
+    <div class="form-group">
+        <label class="form-label" data-i18n="calculator_model">模型选择</label>
+        <select id="calcModel" class="form-control">
+            <option value="kimi-2.5" selected data-i18n="calculator_model_default">GenieviewK 2.5 - 默认</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label class="form-label" data-i18n="calculator_input_tokens">输入 Token 数量</label>
+        <input type="number" id="calcInputTokens" class="form-control" placeholder="0">
+    </div>
+    <div class="form-group">
+        <label class="form-label" data-i18n="calculator_output_tokens">输出 Token 数量</label>
+        <input type="number" id="calcOutputTokens" class="form-control" placeholder="0">
+    </div>
+    <div style="text-align: right; margin-top: 20px;">
+        <button id="btnDoCalculate" class="btn" style="background: var(--accent); color: #fff;" data-i18n="calculator_start">开始计算</button>
+    </div>
+    
+    <div id="calcResult" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 10px;" data-i18n="calculator_formula_title">计算公式 (GenieviewK 2.5):</div>
+            <div style="background: var(--surface-2); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 12px; margin-bottom: 15px;">
+                <div data-i18n="calculator_price_input">Input: ¥0.004 / 1k tokens</div>
+                <div data-i18n="calculator_price_output">Output: ¥0.021 / 1k tokens</div>
+            </div>
+        
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 0;">
+            <div class="stat-card" style="padding: 10px;">
+                <div class="stat-title" data-i18n="calculator_input_cost">输入费用</div>
+                <div class="stat-value" id="resInputCost" style="font-size: 16px;">¥0.00</div>
+            </div>
+            <div class="stat-card" style="padding: 10px;">
+                <div class="stat-title" data-i18n="calculator_output_cost">输出费用</div>
+                <div class="stat-value" id="resOutputCost" style="font-size: 16px;">¥0.00</div>
+            </div>
+            <div class="stat-card" style="padding: 10px; border-color: var(--accent);">
+                <div class="stat-title" style="color: var(--accent);" data-i18n="calculator_total_cost">总费用</div>
+                <div class="stat-value" id="resTotalCost" style="color: var(--accent); font-size: 20px;">¥0.00</div>
+            </div>
+        </div>
+    </div>
+  </div>
+</div>

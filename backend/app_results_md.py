@@ -4,6 +4,7 @@ from typing import Dict, List
 
 def _parse_time_str(t_str: str) -> float:
     t_str = str(t_str).strip()
+    t_str = re.sub(r"[^\d:.]+$", "", t_str)
     try:
         return float(t_str)
     except ValueError:
@@ -12,7 +13,17 @@ def _parse_time_str(t_str: str) -> float:
     if len(parts) == 3:
         return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
     if len(parts) == 2:
-        return float(parts[0]) * 60 + float(parts[1])
+        a_raw, b_raw = parts[0].strip(), parts[1].strip()
+        a = float(a_raw)
+        if "." in b_raw:
+            b = float(b_raw)
+            return a * 60 + b
+        b = float(b_raw)
+        if a <= 2 and 0 <= b <= 59:
+            return a * 60 + b
+        if 0 <= b <= 99:
+            return a + b / 100.0
+        return a * 60 + b
     raise ValueError(f"Invalid time format: {t_str}")
 
 
@@ -21,6 +32,8 @@ def parse_md_content(content: str) -> Dict[str, object]:
     lines = (content or "").splitlines()
     current_section = None
     action_table_lines: List[str] = []
+    preface_lines: List[str] = []
+    seen_any_section = False
 
     for line in lines:
         if line.strip():
@@ -28,12 +41,29 @@ def parse_md_content(content: str) -> Dict[str, object]:
                 current_section = "actions_header"
             break
 
-    re_overview = re.compile(r"^##\s+1\.\s*(工序概览|Overview)", re.IGNORECASE)
-    re_actions = re.compile(r"^##\s+2\.\s*(详细动作分析表|Motion Breakdown)", re.IGNORECASE)
-    re_deep_dive = re.compile(r"^##\s+3\.\s*(深度诊断发现|Deep Dive Findings)", re.IGNORECASE)
-    re_kaizen = re.compile(r"^##\s+4\.\s*(改善机会|Kaizen Opportunities)", re.IGNORECASE)
+    re_overview = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(工序概览|Overview)", re.IGNORECASE)
+    re_actions = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(详细动作分析表|Motion Breakdown)", re.IGNORECASE)
+    re_deep_dive = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(深度诊断发现|Deep Dive Findings)", re.IGNORECASE)
+    re_kaizen = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(改善机会|Kaizen Opportunities)", re.IGNORECASE)
+    re_waste = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(浪费识别|Muda Identification)", re.IGNORECASE)
+    re_supplement = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(补充建议|Supplement)", re.IGNORECASE)
+    re_notes = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(备注|Notes|Confidence|Limitations)", re.IGNORECASE)
 
     for line in lines:
+        if not seen_any_section:
+            if (
+                re_overview.match(line)
+                or re_actions.match(line)
+                or re_deep_dive.match(line)
+                or re_kaizen.match(line)
+                or re_waste.match(line)
+                or re_supplement.match(line)
+                or re_notes.match(line)
+            ):
+                seen_any_section = True
+            else:
+                if current_section is None:
+                    preface_lines.append(line)
         if re_overview.match(line):
             current_section = "overview"
             continue
@@ -44,6 +74,12 @@ def parse_md_content(content: str) -> Dict[str, object]:
             current_section = "deep_dive"
             continue
         if re_kaizen.match(line):
+            current_section = "kaizen"
+            continue
+        if re_waste.match(line):
+            current_section = "deep_dive"
+            continue
+        if re_supplement.match(line) or re_notes.match(line):
             current_section = "kaizen"
             continue
         if line.strip().startswith("## "):
@@ -63,36 +99,140 @@ def parse_md_content(content: str) -> Dict[str, object]:
 
     actions: List[Dict[str, object]] = []
     if len(action_table_lines) > 2:
+        header_cells = [p.strip() for p in action_table_lines[0].split("|")[1:-1]]
+        table_rows: List[List[str]] = []
+
+        def map_header(cell: str) -> str:
+            key = re.sub(r"\s+", "", str(cell)).lower()
+            if key == "cycle" or "循环" in key or "週期" in key:
+                return "cycle"
+            if "序号" in key or "index" in key:
+                return "index"
+            if "动作描述" in key or "actiondescription" in key or key == "action":
+                return "label"
+            if "动素" in key or "therblig" in key:
+                return "therblig"
+            if "是否加工" in key or "processing" in key:
+                return "is_process"
+            if "是否搬运" in key or "transport" in key or "move" in key:
+                return "is_move"
+            if "是否检查" in key or "inspection" in key or "check" in key:
+                return "is_check"
+            if "是否等待" in key or "waiting" in key or "wait" in key:
+                return "is_wait"
+            if "是否存储" in key or "storage" in key or "store" in key:
+                return "is_store"
+            if "预估耗时" in key or "耗时" in key or "duration" in key:
+                return "duration"
+            if "增值" in key or key == "va/nva" or "va/nva" in key:
+                return "value_added"
+            if "左右手" in key or (("hand" in key or "hands" in key) and "left" not in key and "right" not in key):
+                return "hands"
+            if "左手" in key or "left" in key:
+                return "left_hand"
+            if "右手" in key or "right" in key:
+                return "right_hand"
+            if "置信度" in key or key == "confidence":
+                return "confidence"
+            if "可见性" in key or key == "visibility":
+                return "visibility"
+            if "证据描述" in key or "evidence" in key:
+                return "evidence"
+            if "时间段" in key or "时间区间" in key or "timerange" in key or "time" == key:
+                return "time_range"
+            if "sop" in key:
+                return "sop"
+            if "波动" in key or "variation" in key:
+                return "variation"
+            return ""
+
+        header_keys = [map_header(cell) for cell in header_cells]
+        try:
+            idx_col = header_keys.index("index")
+        except ValueError:
+            idx_col = 0
+
         for row_line in action_table_lines[2:]:
-            parts = [p.strip() for p in row_line.split("|")]
-            if len(parts) < 9:
+            cells = [p.strip() for p in row_line.split("|")[1:-1]]
+            if not cells:
                 continue
+            if len(cells) < len(header_cells):
+                cells = cells + [""] * (len(header_cells) - len(cells))
+
+            idx_cell = str(cells[idx_col] if idx_col < len(cells) else "").strip()
+            idx_norm = re.sub(r"[^0-9]", "", idx_cell)
             try:
-                time_range = parts[8]
-                start_time = 0.0
-                end_time = 0.0
-                if "-" in time_range:
-                    t_parts = time_range.split("-")
+                idx_num = int(idx_norm) if idx_norm != "" else -1
+            except Exception:
+                idx_num = -1
+
+            is_dashes_row = True
+            for c in cells:
+                cc = str(c or "").strip()
+                if not cc:
+                    continue
+                if not re.fullmatch(r"[-:\s]+", cc):
+                    is_dashes_row = False
+                    break
+
+            is_action_row_by_index = idx_num >= 1
+            if is_action_row_by_index and not is_dashes_row:
+                table_rows.append(cells)
+
+            action: Dict[str, object] = {}
+            for idx, cell in enumerate(cells):
+                # Map to keys if within header range, otherwise ignore for object mapping
+                # (but the row data is preserved in table_rows for display)
+                if idx >= len(header_keys):
+                    break
+                key = header_keys[idx]
+                if key:
+                    action[key] = cell
+            if "cycle" in action and not str(action.get("cycle") or "").strip():
+                action["cycle"] = "1"
+
+            time_range = str(action.get("time_range") or "").strip()
+            start_time = 0.0
+            end_time = 0.0
+            if time_range:
+                normalized = (
+                    time_range.replace("–", "-")
+                    .replace("—", "-")
+                    .replace("~", "-")
+                    .replace("～", "-")
+                    .replace("至", "-")
+                    .replace("to", "-")
+                )
+                if "-" in normalized:
+                    t_parts = [p.strip() for p in normalized.split("-") if p.strip()]
+                else:
+                    t_parts = []
+            else:
+                t_parts = []
+            if len(t_parts) >= 2:
+                try:
                     start_time = _parse_time_str(t_parts[0])
                     end_time = _parse_time_str(t_parts[1])
-                action = {
-                    "index": parts[1],
-                    "label": parts[2],
-                    "sop": parts[3],
-                    "left_hand": parts[4],
-                    "right_hand": parts[5],
-                    "duration": parts[6],
-                    "value_added": parts[7],
-                    "time_range": parts[8],
-                    "start_time": start_time,
-                    "end_time": end_time,
-                }
+                except Exception:
+                    start_time = 0.0
+                    end_time = 0.0
+            action["start_time"] = start_time
+            action["end_time"] = end_time
+            idx_cell2 = str(action.get("index") or "").strip()
+            idx_norm2 = re.sub(r"[^0-9]", "", idx_cell2)
+            is_action_row = bool(idx_norm2) and float(end_time) > float(start_time)
+            if is_action_row:
                 actions.append(action)
-            except Exception:
-                continue
+
+        sections["actions_table"] = {"headers": header_cells, "rows": table_rows}
 
     sections["actions"] = actions
-    sections["overview"] = str(sections.get("overview") or "").strip()
+    preface = "\n".join(preface_lines).strip()
+    overview = str(sections.get("overview") or "").strip()
+    if preface:
+        sections["overview"] = (preface + "\n\n" + overview).strip() if overview else preface
+    else:
+        sections["overview"] = overview
     sections["deep_dive"] = str(sections.get("deep_dive") or "").strip()
     sections["kaizen"] = str(sections.get("kaizen") or "").strip()
     return sections
@@ -101,7 +241,166 @@ def parse_md_content(content: str) -> Dict[str, object]:
 def update_md_content(content: str, new_actions: List[Dict[str, object]]) -> str:
     lines = (content or "").splitlines()
     new_lines: List[str] = []
-    re_actions = re.compile(r"^##\s+2\.\s*(详细动作分析表|Motion Breakdown)", re.IGNORECASE)
+    re_actions = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(详细动作分析表|Motion Breakdown)", re.IGNORECASE)
+
+    def split_row_cells(row_line: str) -> List[str]:
+        return [p.strip() for p in str(row_line).split("|")[1:-1]]
+
+    def format_row(cells: List[object]) -> str:
+        return "| " + " | ".join(str(x or "") for x in cells) + " |"
+
+    def map_header(cell: str) -> str:
+        key = re.sub(r"\s+", "", str(cell)).lower()
+        if key == "cycle" or "循环" in key or "週期" in key:
+            return "cycle"
+        if "序号" in key or "index" in key:
+            return "index"
+        if "动作描述" in key or "actiondescription" in key or key == "action":
+            return "label"
+        if "动素" in key or "therblig" in key:
+            return "therblig"
+        if "是否加工" in key or "processing" in key:
+            return "is_process"
+        if "是否搬运" in key or "transport" in key or "move" in key:
+            return "is_move"
+        if "是否检查" in key or "inspection" in key or "check" in key:
+            return "is_check"
+        if "是否等待" in key or "waiting" in key or "wait" in key:
+            return "is_wait"
+        if "是否存储" in key or "storage" in key or "store" in key:
+            return "is_store"
+        if "预估耗时" in key or "耗时" in key or "duration" in key:
+            return "duration"
+        if "增值" in key or key == "va/nva" or "va/nva" in key:
+            return "value_added"
+        if "左右手" in key or (("hand" in key or "hands" in key) and "left" not in key and "right" not in key):
+            return "hands"
+        if "左手" in key or "left" in key:
+            return "left_hand"
+        if "右手" in key or "right" in key:
+            return "right_hand"
+        if "置信度" in key or key == "confidence":
+            return "confidence"
+        if "可见性" in key or key == "visibility":
+            return "visibility"
+        if "证据描述" in key or "evidence" in key:
+            return "evidence"
+        if "时间段" in key or "时间区间" in key or "timerange" in key or "time" == key:
+            return "time_range"
+        if "sop" in key:
+            return "sop"
+        if "波动" in key or "variation" in key:
+            return "variation"
+        return ""
+
+    def extract_start_end(act: Dict[str, object]):
+        s = act.get("start_time")
+        e = act.get("end_time")
+        try:
+            s2 = float(s) if s is not None else None
+            e2 = float(e) if e is not None else None
+            if s2 is not None and e2 is not None and e2 > s2:
+                return s2, e2
+        except Exception:
+            pass
+
+        for key in ("time_range", "duration"):
+            tr = str(act.get(key) or "").strip()
+            if not tr:
+                continue
+            normalized = (
+                tr.replace("–", "-")
+                .replace("—", "-")
+                .replace("~", "-")
+                .replace("～", "-")
+                .replace("至", "-")
+                .replace("to", "-")
+            )
+            if "-" not in normalized:
+                continue
+            t_parts = [p.strip() for p in normalized.split("-") if p.strip()]
+            if len(t_parts) < 2:
+                continue
+            try:
+                s3 = _parse_time_str(t_parts[0])
+                e3 = _parse_time_str(t_parts[1])
+                if e3 > s3:
+                    return float(s3), float(e3)
+            except Exception:
+                continue
+
+        return None, None
+
+    def index_col_from_header_line(header_line: str) -> int:
+        header_cells = split_row_cells(header_line)
+        if not header_cells:
+            return 0
+        keys = [map_header(c) for c in header_cells]
+        try:
+            return keys.index("index")
+        except ValueError:
+            return 0
+
+    def build_table_lines(header_line: str, delim_line: str, extra_row_lines: List[str] = None) -> List[str]:
+        header_cells = split_row_cells(header_line)
+        if not header_cells:
+            header_cells = [
+                "序号",
+                "动作描述",
+                "SOP 操作步骤",
+                "左手状态",
+                "右手状态",
+                "预估耗时(s)",
+                "增值/非增值",
+                "时间段",
+            ]
+            header_line2 = format_row(header_cells)
+            delim_line2 = "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+            header_line = header_line2
+            delim_line = delim_line2
+
+        keys = [map_header(c) for c in header_cells]
+        out = [header_line, delim_line]
+        for idx, act in enumerate(new_actions or [], 1):
+            a = act if isinstance(act, dict) else {}
+            s, e = extract_start_end(a)
+            duration = a.get("duration", "")
+            trange = a.get("time_range", "")
+            if s is not None and e is not None:
+                duration = f"{max(0.0, e - s):.1f}"
+                trange = f"{s:.2f} - {e:.2f}"
+
+            row_cells: List[object] = []
+            for k in keys:
+                if k == "cycle":
+                    row_cells.append(a.get("cycle") or "1")
+                elif k == "index":
+                    row_cells.append(str(idx))
+                elif k == "label":
+                    row_cells.append(a.get("label", ""))
+                elif k == "sop":
+                    row_cells.append(a.get("sop", "") or a.get("type", ""))
+                elif k == "left_hand":
+                    row_cells.append(a.get("left_hand", ""))
+                elif k == "right_hand":
+                    row_cells.append(a.get("right_hand", ""))
+                elif k == "duration":
+                    row_cells.append(duration)
+                elif k == "value_added":
+                    row_cells.append(a.get("value_added", ""))
+                elif k == "time_range":
+                    row_cells.append(trange)
+                elif k == "hands":
+                    row_cells.append(a.get("hands", ""))
+                elif k:
+                    row_cells.append(a.get(k, ""))
+                else:
+                    row_cells.append("")
+            out.append(format_row(row_cells))
+        for r in extra_row_lines or []:
+            if str(r).strip().startswith("|"):
+                out.append(str(r).rstrip())
+        return out
 
     is_table_only = False
     if not (content or "").strip():
@@ -114,19 +413,30 @@ def update_md_content(content: str, new_actions: List[Dict[str, object]]) -> str
                 break
 
     if is_table_only:
-        new_lines.append("| 序号 | 动作描述 | SOP 操作步骤 | 左手状态 | 右手状态 | 预估耗时(s) | 增值/非增值 | 时间段 |")
-        new_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
-        for idx, act in enumerate(new_actions, 1):
-            label = act.get("label", "")
-            sop = act.get("sop", "") or act.get("type", "")
-            left = act.get("left_hand", "")
-            right = act.get("right_hand", "")
-            duration = act.get("duration", "")
-            val = act.get("value_added", "")
-            trange = act.get("time_range", "")
-            row = f"| {idx} | {label} | {sop} | {left} | {right} | {duration} | {val} | {trange} |"
-            new_lines.append(row)
-        return "\n".join(new_lines)
+        header_line = ""
+        delim_line = ""
+        extra_rows: List[str] = []
+        for j, line in enumerate(lines):
+            if line.strip():
+                if line.strip().startswith("|"):
+                    header_line = line
+                    idx_col = index_col_from_header_line(header_line)
+                    if j + 1 < len(lines) and str(lines[j + 1]).strip().startswith("|"):
+                        delim_line = lines[j + 1]
+                        k = j + 2
+                        while k < len(lines) and str(lines[k]).strip().startswith("|"):
+                            cells = split_row_cells(lines[k])
+                            idx_txt = str(cells[idx_col] if idx_col < len(cells) else "").strip()
+                            idx_norm = re.sub(r"[^0-9]", "", idx_txt)
+                            if not idx_norm:
+                                extra_rows.append(lines[k])
+                            k += 1
+                    break
+                break
+        if not header_line:
+            header_line = "| 序号 | 动作描述 | SOP 操作步骤 | 左手状态 | 右手状态 | 预估耗时(s) | 增值/非增值 | 时间段 |"
+            delim_line = "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        return "\n".join(build_table_lines(header_line, delim_line, extra_rows))
 
     i = 0
     while i < len(lines):
@@ -136,40 +446,31 @@ def update_md_content(content: str, new_actions: List[Dict[str, object]]) -> str
             i += 1
             while i < len(lines):
                 l = lines[i]
-                new_lines.append(l)
                 if l.strip().startswith("|"):
-                    i += 1
-                    if i < len(lines):
-                        new_lines.append(lines[i])
+                    header_line = l
+                    idx_col = index_col_from_header_line(header_line)
+                    delim_line = ""
+                    extra_rows: List[str] = []
+                    if i + 1 < len(lines) and str(lines[i + 1]).strip().startswith("|"):
+                        delim_line = lines[i + 1]
+                        i += 2
+                    else:
+                        delim_line = "| :--- | :--- |"
                         i += 1
-                    for idx, act in enumerate(new_actions, 1):
-                        label = act.get("label", "")
-                        sop = act.get("sop", "") or act.get("type", "")
-                        left = act.get("left_hand", "")
-                        right = act.get("right_hand", "")
-                        duration = act.get("duration", "")
-                        val = act.get("value_added", "")
-                        trange = act.get("time_range", "")
-                        if "start_time" in act and "end_time" in act:
-                            try:
-                                s = float(act["start_time"])
-                                e = float(act["end_time"])
-                                d = max(0, e - s)
-                                duration = f"{d:.1f}"
-                                trange = f"{s:.2f} - {e:.2f}"
-                            except Exception:
-                                pass
-                        row = f"| {idx} | {label} | {sop} | {left} | {right} | {duration} | {val} | {trange} |"
-                        new_lines.append(row)
-                    while i < len(lines):
-                        next_l = lines[i]
-                        if not next_l.strip() or not next_l.strip().startswith("|"):
-                            break
+
+                    while i < len(lines) and str(lines[i]).strip().startswith("|"):
+                        cells = split_row_cells(lines[i])
+                        idx_txt = str(cells[idx_col] if idx_col < len(cells) else "").strip()
+                        idx_norm = re.sub(r"[^0-9]", "", idx_txt)
+                        if not idx_norm:
+                            extra_rows.append(lines[i])
                         i += 1
+
+                    new_lines.extend(build_table_lines(header_line, delim_line, extra_rows))
                     break
+                new_lines.append(l)
                 i += 1
             continue
         new_lines.append(line)
         i += 1
     return "\n".join(new_lines)
-
