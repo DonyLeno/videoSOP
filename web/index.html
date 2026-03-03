@@ -1108,7 +1108,8 @@
         renderedLogCount = 0;
         log.scrollTop = log.scrollHeight;
         
-        appendLog(log, `请求参数: ${JSON.stringify({ video_path: videoPath, model, fps })}\n`);
+        const uiLang = (typeof currentLang !== 'undefined' && currentLang) ? currentLang : (localStorage.getItem('ui_lang') || 'zh');
+        appendLog(log, `请求参数: ${JSON.stringify({ video_path: videoPath, model, fps, ui_lang: uiLang })}\n`);
         log.scrollTop = log.scrollHeight;
 
         const taskRunningBar = document.getElementById('taskRunningBar');
@@ -1117,8 +1118,8 @@
         try {
           const res = await authFetch('/api/analyze', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ video_path: videoPath, model, fps })
+            headers: {'Content-Type': 'application/json', 'X-UI-Lang': uiLang},
+            body: JSON.stringify({ video_path: videoPath, model, fps, ui_lang: uiLang })
           });
           
           if (!res.ok) {

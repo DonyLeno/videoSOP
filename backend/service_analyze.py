@@ -65,6 +65,7 @@ def background_analyze_task(
     prompt_file: Optional[str] = None,
     sop_content: Optional[str] = None,
     result_timestamp: Optional[str] = None,
+    ui_lang: Optional[str] = None,
 ) -> None:
     task = USER_TASKS.get(username)
     if not task:
@@ -269,16 +270,16 @@ def background_analyze_task(
 
         # Auto-translate result and complete task
         if final_response:
-            try:
-                translate_api_key = None
-                if normalized_model.startswith("kimi") or normalized_model.startswith("moonshot"):
-                    translate_api_key = api_key
-                
-                _append_task_log(username, f"[INFO] Starting auto-translation for {result_path}...\n")
-                translate_file(result_path, translate_api_key)
-                _append_task_log(username, f"[INFO] Auto-translation completed.\n")
-            except Exception as e:
-                _append_task_log(username, f"[WARNING] Auto-translation failed: {str(e)}\n")
+            if (ui_lang or "").strip().lower() == "en":
+                try:
+                    translate_api_key = None
+                    if normalized_model.startswith("kimi") or normalized_model.startswith("moonshot"):
+                        translate_api_key = api_key
+                    _append_task_log(username, f"[INFO] Starting auto-translation for {result_path}...\n")
+                    translate_file(result_path, translate_api_key)
+                    _append_task_log(username, f"[INFO] Auto-translation completed.\n")
+                except Exception as e:
+                    _append_task_log(username, f"[WARNING] Auto-translation failed: {str(e)}\n")
             
             # Update status to completed after translation
             with USER_TASKS_LOCK:
@@ -465,10 +466,11 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                     "progress": {"current": 0, "total": image_count},
                     "kind": "analyze",
                     "prompt_path": prompt_path,
+                    "ui_lang": ui_lang,
                 }
             t = threading.Thread(
                 target=background_analyze_task,
-                args=(username, video_path, model, fps, api_key, prompt_path, sop_content, timestamp),
+                args=(username, video_path, model, fps, api_key, prompt_path, sop_content, timestamp, ui_lang),
                 daemon=True,
             )
             t.start()

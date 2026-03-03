@@ -1,7 +1,7 @@
 import os
 
 
-VERSION = "v2.2"
+VERSION = "v2.3"
 
 PORT = int(os.environ.get("PORT", "8000"))
 

@@ -1489,7 +1489,7 @@ function setupDetectionUI() {
         appendLog(
           log,
           t('request_params_log', {
-            params: JSON.stringify({ video_path: videoPath, model, fps })
+            params: JSON.stringify({ video_path: videoPath, model, fps, ui_lang: currentLang || 'zh' })
           })
         );
         log.scrollTop = log.scrollHeight;
@@ -1499,10 +1499,11 @@ function setupDetectionUI() {
       if (taskRunningBar) taskRunningBar.style.display = 'flex';
 
       try {
+        const uiLang = currentLang || 'zh';
         const res = await authFetch('/api/analyze', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ video_path: videoPath, model, fps })
+          headers: { 'Content-Type': 'application/json', 'X-UI-Lang': uiLang },
+          body: JSON.stringify({ video_path: videoPath, model, fps, ui_lang: uiLang })
         });
 
         if (!res.ok) {
@@ -1511,7 +1512,6 @@ function setupDetectionUI() {
         }
         const started = await res.json().catch(() => ({}));
         if (log) {
-          const uiLang = currentLang || 'zh';
           appendLog(
             log,
             `[INFO] UI Lang: ${uiLang}; Prompt: ${started.prompt_path || 'unknown'}\n`

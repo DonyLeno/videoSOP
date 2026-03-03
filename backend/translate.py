@@ -1,7 +1,8 @@
 import os
 import sys
+import re
 import argparse
-from typing import Optional
+from typing import Optional, List, Tuple
 from openai import OpenAI
 
 # Add parent directory to sys.path to allow importing from backend
@@ -24,6 +25,8 @@ except ImportError:
 # I will check if there is an existing Kimi/Moonshot key in the project or ask/assume one.
 # For now, I will use a placeholder or try to read from env MOONSHOT_API_KEY.
 MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "")
+TRANSLATION_MODEL = os.environ.get("MOONSHOT_MODEL", "moonshot-v1-8k")
+TRANSLATION_CHUNK_SIZE = int(os.environ.get("MOONSHOT_CHUNK_SIZE", "3500"))
 
 def get_api_key_from_db(username: str = "admin") -> Optional[str]:
     """Retrieve API key from database for a specific user (default: admin)"""
@@ -38,6 +41,130 @@ def get_api_key_from_db(username: str = "admin") -> Optional[str]:
     except Exception as e:
         print(f"Error retrieving API key from DB: {e}")
         return None
+
+def _protect_code_blocks(content: str) -> Tuple[str, List[str]]:
+    blocks: List[str] = []
+    def repl(match: re.Match) -> str:
+        blocks.append(match.group(0))
+        return f"__CODE_BLOCK_{len(blocks) - 1}__"
+    safe = re.sub(r"```[\s\S]*?```", repl, content)
+    return safe, blocks
+
+
+def _restore_code_blocks(content: str, blocks: List[str]) -> str:
+    out = content
+    for i, block in enumerate(blocks):
+        out = out.replace(f"__CODE_BLOCK_{i}__", block)
+    return out
+
+
+def _split_markdown_sections(content: str) -> List[str]:
+    parts = re.split(r"(?m)(^##\s.*$)", content)
+    if len(parts) <= 1:
+        return [content] if content.strip() else []
+    chunks: List[str] = []
+    pre = parts[0]
+    if pre.strip():
+        chunks.append(pre)
+    i = 1
+    while i < len(parts):
+        header = parts[i]
+        body = parts[i + 1] if i + 1 < len(parts) else ""
+        chunks.append(f"{header}\n{body}".rstrip())
+        i += 2
+    return [c for c in chunks if c.strip()]
+
+
+def _lines_len(lines: List[str]) -> int:
+    if not lines:
+        return 0
+    return sum(len(line) for line in lines) + max(0, len(lines) - 1)
+
+
+def _split_section_by_size(section: str, max_chars: int) -> List[str]:
+    lines = section.splitlines()
+    if _lines_len(lines) <= max_chars:
+        return [section.strip()]
+
+    header_line = None
+    if lines and re.match(r"^##\s", lines[0]):
+        header_line = lines[0]
+        lines = lines[1:]
+
+    blocks: List[Tuple[bool, List[str]]] = []
+    current: List[str] = []
+    current_is_table: Optional[bool] = None
+    for line in lines:
+        is_table = line.strip().startswith("|")
+        if current_is_table is None:
+            current_is_table = is_table
+        if is_table != current_is_table:
+            blocks.append((current_is_table, current))
+            current = [line]
+            current_is_table = is_table
+        else:
+            current.append(line)
+    if current:
+        blocks.append((current_is_table or False, current))
+
+    chunks: List[str] = []
+    current_lines: List[str] = []
+    if header_line:
+        current_lines.append(header_line)
+
+    for is_table, block_lines in blocks:
+        if not is_table:
+            for line in block_lines:
+                if _lines_len(current_lines + [line]) > max_chars and current_lines:
+                    chunks.append("\n".join(current_lines).rstrip())
+                    current_lines = []
+                current_lines.append(line)
+            continue
+
+        header = block_lines[0] if len(block_lines) >= 1 else ""
+        sep = block_lines[1] if len(block_lines) >= 2 else ""
+        rows = block_lines[2:] if len(block_lines) > 2 else []
+
+        if _lines_len(current_lines) + len(header) + len(sep) + 2 > max_chars and current_lines:
+            chunks.append("\n".join(current_lines).rstrip())
+            current_lines = []
+
+        if header:
+            current_lines.append(header)
+        if sep:
+            current_lines.append(sep)
+
+        for row in rows:
+            if _lines_len(current_lines + [row]) > max_chars and (header or sep):
+                chunks.append("\n".join(current_lines).rstrip())
+                current_lines = []
+                if header:
+                    current_lines.append(header)
+                if sep:
+                    current_lines.append(sep)
+            current_lines.append(row)
+
+    if current_lines:
+        chunks.append("\n".join(current_lines).rstrip())
+
+    return [c for c in chunks if c.strip()]
+
+
+def _translate_chunk(client: OpenAI, chunk: str) -> str:
+    completion = client.chat.completions.create(
+        model=TRANSLATION_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": "Translate Chinese technical markdown into English. Keep all markdown structure, tables, and line breaks. Do not omit any content. If text is already English, keep it unchanged. Output only the translated markdown.",
+            },
+            {"role": "user", "content": chunk},
+        ],
+        temperature=0.2,
+        max_tokens=4096,
+    )
+    return completion.choices[0].message.content or ""
+
 
 def translate_file(input_path: str, api_key: Optional[str] = None):
     if not os.path.exists(input_path):
@@ -76,16 +203,19 @@ def translate_file(input_path: str, api_key: Optional[str] = None):
 
     print("Sending translation request to Kimi 2.5 Flash...")
     try:
-        completion = client.chat.completions.create(
-            model="moonshot-v1-8k", 
-            messages=[
-                {"role": "system", "content": "You are a professional translator. Translate the following Chinese technical document into English. Maintain the original markdown formatting, tables, and structure. Only output the translated content, no conversational text."},
-                {"role": "user", "content": content}
-            ],
-            temperature=0.3,
-        )
-        
-        translated_content = completion.choices[0].message.content
+        safe_content, code_blocks = _protect_code_blocks(content)
+        base_sections = _split_markdown_sections(safe_content)
+        chunks: List[str] = []
+        for section in base_sections:
+            chunks.extend(_split_section_by_size(section, TRANSLATION_CHUNK_SIZE))
+        translated_parts: List[str] = []
+        total = max(1, len(chunks))
+        for i, chunk in enumerate(chunks, start=1):
+            print(f"Translating section {i}/{total}...")
+            translated = _translate_chunk(client, chunk)
+            translated_parts.append(translated if translated.strip() else chunk)
+        translated_content = "\n\n".join([p.strip() for p in translated_parts if p.strip()])
+        translated_content = _restore_code_blocks(translated_content, code_blocks)
         
         print(f"Writing translated content to: {output_path}")
         with open(output_path, "w", encoding="utf-8") as f:
