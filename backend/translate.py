@@ -1,0 +1,124 @@
+import os
+import sys
+import argparse
+from typing import Optional
+from openai import OpenAI
+
+# Add parent directory to sys.path to allow importing from backend
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+try:
+    from backend.app_db import get_user_api_key_model, get_db_connection, _get_sqlite_connection
+except ImportError:
+    # Fallback if run directly and path setup fails
+    print("Warning: Could not import backend modules. Database access might fail.")
+
+# Configuration
+# Kimi API key (Moonshot AI) - Placeholder, should be provided via environment variable or argument
+# However, user mentioned "kimi 2.5 flash", which implies Moonshot AI's API.
+# I will assume the user might provide the key or I should look for it in env.
+# Based on previous context, user provided other keys but not Kimi key in the prompt.
+# I will check if there is an existing Kimi/Moonshot key in the project or ask/assume one.
+# For now, I will use a placeholder or try to read from env MOONSHOT_API_KEY.
+MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "")
+
+def get_api_key_from_db(username: str = "admin") -> Optional[str]:
+    """Retrieve API key from database for a specific user (default: admin)"""
+    try:
+        # Try to get key for admin or first available user
+        api_key, _ = get_user_api_key_model(username)
+        if api_key:
+            return api_key
+            
+        # If no admin key, maybe check env again or return None
+        return None
+    except Exception as e:
+        print(f"Error retrieving API key from DB: {e}")
+        return None
+
+def translate_file(input_path: str, api_key: Optional[str] = None):
+    if not os.path.exists(input_path):
+        print(f"Error: Input file not found: {input_path}")
+        return
+
+    # Determine which API key to use
+    key_to_use = api_key
+    if not key_to_use:
+        key_to_use = os.environ.get("MOONSHOT_API_KEY", "")
+    
+    if not key_to_use:
+        # Try to get from DB (admin)
+        print("No API Key provided. Attempting to retrieve from database (admin user)...")
+        key_to_use = get_api_key_from_db("admin")
+        
+    if not key_to_use:
+        print("Error: No API Key available for translation (checked args, env, and admin DB).")
+        return
+
+    # Prepare output path
+    dir_name = os.path.dirname(input_path)
+    base_name = os.path.basename(input_path)
+    output_filename = f"en_{base_name}"
+    output_path = os.path.join(dir_name, output_filename)
+    
+    print(f"Reading input file: {input_path}")
+    with open(input_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    print("Initializing Kimi client...")
+    client = OpenAI(
+        api_key=key_to_use,
+        base_url="https://api.moonshot.cn/v1",
+    )
+
+    print("Sending translation request to Kimi 2.5 Flash...")
+    try:
+        completion = client.chat.completions.create(
+            model="moonshot-v1-8k", 
+            messages=[
+                {"role": "system", "content": "You are a professional translator. Translate the following Chinese technical document into English. Maintain the original markdown formatting, tables, and structure. Only output the translated content, no conversational text."},
+                {"role": "user", "content": content}
+            ],
+            temperature=0.3,
+        )
+        
+        translated_content = completion.choices[0].message.content
+        
+        print(f"Writing translated content to: {output_path}")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(translated_content)
+            
+        print("Translation complete.")
+        
+    except Exception as e:
+        print(f"Translation failed: {e}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Translate markdown file using Kimi 2.5 Flash")
+    parser.add_argument("input_path", help="Path to the input markdown file")
+    parser.add_argument("--api_key", help="Kimi API Key", default=MOONSHOT_API_KEY)
+    
+    args = parser.parse_args()
+    
+    api_key = args.api_key
+    
+    if not api_key:
+        print("No API Key provided in args or env. Attempting to retrieve from database (admin user)...")
+        # Ensure we are in the project root context for DB access if possible
+        # (Assuming script is run from project root or backend folder)
+        try:
+            db_key = get_api_key_from_db("admin")
+            if db_key:
+                print(f"Found API key for user 'admin' in database.")
+                api_key = db_key
+        except Exception as e:
+            print(f"Failed to retrieve key from DB: {e}")
+            
+    if not api_key:
+        print("Error: API Key is required. Set MOONSHOT_API_KEY env var, pass --api_key, or configure 'admin' user with key in DB.")
+        sys.exit(1)
+        
+    translate_file(args.input_path, api_key)

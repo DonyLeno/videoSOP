@@ -41,13 +41,13 @@ def parse_md_content(content: str) -> Dict[str, object]:
                 current_section = "actions_header"
             break
 
-    re_overview = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(工序概览|Overview)", re.IGNORECASE)
-    re_actions = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(详细动作分析表|Motion Breakdown)", re.IGNORECASE)
-    re_deep_dive = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(深度诊断发现|Deep Dive Findings)", re.IGNORECASE)
-    re_kaizen = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(改善机会|Kaizen Opportunities)", re.IGNORECASE)
-    re_waste = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(浪费识别|Muda Identification)", re.IGNORECASE)
-    re_supplement = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(补充建议|Supplement)", re.IGNORECASE)
-    re_notes = re.compile(r"^#{2,6}\s+(?:\d+\.\s*)?(备注|Notes|Confidence|Limitations)", re.IGNORECASE)
+    re_overview = re.compile(r"^#{2,6}\s+.*(工序概览|Overview)", re.IGNORECASE)
+    re_actions = re.compile(r"^#{2,6}\s+.*(动作分析|Motion Breakdown|Motion Analysis)", re.IGNORECASE)
+    re_deep_dive = re.compile(r"^#{2,6}\s+.*(深度诊断|Deep Dive)", re.IGNORECASE)
+    re_kaizen = re.compile(r"^#{2,6}\s+.*(改善|Kaizen)", re.IGNORECASE)
+    re_waste = re.compile(r"^#{2,6}\s+.*(浪费|Muda)", re.IGNORECASE)
+    re_supplement = re.compile(r"^#{2,6}\s+.*(补充|Supplement)", re.IGNORECASE)
+    re_notes = re.compile(r"^#{2,6}\s+.*(备注|Notes|Confidence|Limitations)", re.IGNORECASE)
 
     for line in lines:
         if not seen_any_section:
@@ -106,15 +106,15 @@ def parse_md_content(content: str) -> Dict[str, object]:
             key = re.sub(r"\s+", "", str(cell)).lower()
             if key == "cycle" or "循环" in key or "週期" in key:
                 return "cycle"
-            if "序号" in key or "index" in key:
+            if "序号" in key or "index" in key or "no." in key or key == "no":
                 return "index"
-            if "动作描述" in key or "actiondescription" in key or key == "action":
+            if "动作描述" in key or "actiondescription" in key or key == "action" or "motion" in key or "description" in key:
                 return "label"
             if "动素" in key or "therblig" in key:
                 return "therblig"
-            if "是否加工" in key or "processing" in key:
+            if "是否加工" in key or "processing" in key or "process" in key:
                 return "is_process"
-            if "是否搬运" in key or "transport" in key or "move" in key:
+            if "是否搬运" in key or "transport" in key or "move" in key or "conveyance" in key:
                 return "is_move"
             if "是否检查" in key or "inspection" in key or "check" in key:
                 return "is_check"
@@ -122,9 +122,9 @@ def parse_md_content(content: str) -> Dict[str, object]:
                 return "is_wait"
             if "是否存储" in key or "storage" in key or "store" in key:
                 return "is_store"
-            if "预估耗时" in key or "耗时" in key or "duration" in key:
+            if "预估耗时" in key or "耗时" in key or "duration" in key or "estimatedtime" in key:
                 return "duration"
-            if "增值" in key or key == "va/nva" or "va/nva" in key:
+            if "增值" in key or key == "va/nva" or "va/nva" in key or "value" in key:
                 return "value_added"
             if "左右手" in key or (("hand" in key or "hands" in key) and "left" not in key and "right" not in key):
                 return "hands"
@@ -138,12 +138,23 @@ def parse_md_content(content: str) -> Dict[str, object]:
                 return "visibility"
             if "证据描述" in key or "evidence" in key:
                 return "evidence"
-            if "时间段" in key or "时间区间" in key or "timerange" in key or "time" == key:
+            if (
+                "时间段" in key
+                or "时间区间" in key
+                or "timerange" in key
+                or "timesegment" in key
+                or ("time" in key and "segment" in key)
+                or "time" == key
+                or "range" in key
+                or "timeinterval" in key
+            ):
                 return "time_range"
             if "sop" in key:
                 return "sop"
             if "波动" in key or "variation" in key:
                 return "variation"
+            if "备注" in key or "notes" in key:
+                return "notes"
             return ""
 
         header_keys = [map_header(cell) for cell in header_cells]
@@ -188,6 +199,18 @@ def parse_md_content(content: str) -> Dict[str, object]:
                 key = header_keys[idx]
                 if key:
                     action[key] = cell
+                raw_header = re.sub(r"\s+", "", str(header_cells[idx])).lower() if idx < len(header_cells) else ""
+                if (
+                    ("time" in raw_header and "evidence" in raw_header)
+                    or ("时间" in raw_header and "证据" in raw_header)
+                ):
+                    parts = re.split(r"[｜|]", str(cell), maxsplit=1)
+                    left = parts[0].strip() if parts else ""
+                    right = parts[1].strip() if len(parts) > 1 else ""
+                    if left:
+                        action["time_range"] = left
+                    if right:
+                        action["evidence"] = right
             if "cycle" in action and not str(action.get("cycle") or "").strip():
                 action["cycle"] = "1"
 
@@ -253,13 +276,13 @@ def update_md_content(content: str, new_actions: List[Dict[str, object]]) -> str
         key = re.sub(r"\s+", "", str(cell)).lower()
         if key == "cycle" or "循环" in key or "週期" in key:
             return "cycle"
-        if "序号" in key or "index" in key:
+        if "序号" in key or "index" in key or "no." in key or key == "no":
             return "index"
-        if "动作描述" in key or "actiondescription" in key or key == "action":
+        if "动作描述" in key or "actiondescription" in key or key == "action" or "motion" in key or "description" in key:
             return "label"
         if "动素" in key or "therblig" in key:
             return "therblig"
-        if "是否加工" in key or "processing" in key:
+        if "是否加工" in key or "processing" in key or "process" in key:
             return "is_process"
         if "是否搬运" in key or "transport" in key or "move" in key:
             return "is_move"
@@ -271,7 +294,7 @@ def update_md_content(content: str, new_actions: List[Dict[str, object]]) -> str
             return "is_store"
         if "预估耗时" in key or "耗时" in key or "duration" in key:
             return "duration"
-        if "增值" in key or key == "va/nva" or "va/nva" in key:
+        if "增值" in key or key == "va/nva" or "va/nva" in key or "value" in key:
             return "value_added"
         if "左右手" in key or (("hand" in key or "hands" in key) and "left" not in key and "right" not in key):
             return "hands"
@@ -285,7 +308,15 @@ def update_md_content(content: str, new_actions: List[Dict[str, object]]) -> str
             return "visibility"
         if "证据描述" in key or "evidence" in key:
             return "evidence"
-        if "时间段" in key or "时间区间" in key or "timerange" in key or "time" == key:
+        if (
+            "时间段" in key
+            or "时间区间" in key
+            or "timerange" in key
+            or "timesegment" in key
+            or ("time" in key and "segment" in key)
+            or "time" == key
+            or "range" in key
+        ):
             return "time_range"
         if "sop" in key:
             return "sop"

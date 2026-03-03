@@ -58,8 +58,9 @@ const I18N = {
     time_range: '时间区间',
     left_hand: '左手状态',
     right_hand: '右手状态',
-    start_time: '开始时间 (s)',
-    end_time: '结束时间 (s)',
+    start_time_earlier_than_prev: '开始时间不能早于上一个动作的开始时间 ({time})',
+    end_time_later_than_next: '结束时间不能晚于下一个动作的结束时间 ({time})',
+    start_time_later_than_end_time: '开始时间不能晚于结束时间',
     estimated_duration: '预估耗时 (s)',
     auto_calculate: '自动计算',
     notify_title: 'Genieview 通知',
@@ -203,7 +204,8 @@ const I18N = {
     save_success: '保存成功',
     save_failed_with_error: '保存失败: {error}',
     load_failed_with_status: '加载失败: {url} ({status})',
-    page_load_failed: '页面加载失败: {error}'
+    page_load_failed: '页面加载失败: {error}',
+    reason: '原因'
   },
   en: {
     login_subtitle: 'Video Action Analysis & Annotation Platform',
@@ -263,6 +265,9 @@ const I18N = {
     right_hand: 'Right Hand',
     start_time: 'Start Time (s)',
     end_time: 'End Time (s)',
+    start_time_earlier_than_prev: 'Start time cannot be earlier than previous action start time ({time})',
+    end_time_later_than_next: 'End time cannot be later than next action end time ({time})',
+    start_time_later_than_end_time: 'Start time cannot be later than end time',
     estimated_duration: 'Estimated Duration (s)',
     auto_calculate: 'Auto',
     notify_title: 'Genieview Notice',
@@ -406,7 +411,8 @@ const I18N = {
     save_success: 'Saved successfully',
     save_failed_with_error: 'Save failed: {error}',
     load_failed_with_status: 'Load failed: {url} ({status})',
-    page_load_failed: 'Page load failed: {error}'
+    page_load_failed: 'Page load failed: {error}',
+    reason: 'Reason'
   }
 };
 
@@ -470,6 +476,20 @@ function applyLanguage(lang) {
   });
 
   refreshDynamicText();
+
+  const vidSel = document.getElementById('reviewVideoSelect');
+  if (vidSel && vidSel.value) {
+    const resSel = document.getElementById('reviewResultSelect');
+    const oldVal = resSel ? resSel.value : '';
+    autoSelectResultByVideoPrefix(vidSel.value);
+    const newVal = resSel ? resSel.value : '';
+    
+    // If selection didn't change (or autoSelect didn't trigger change), force reload
+    // to ensure default headers and other UI elements update their language
+    if (oldVal === newVal && newVal) {
+        resSel.dispatchEvent(new Event('change'));
+    }
+  }
 }
 
 function notify(message) {
@@ -1629,32 +1649,25 @@ async function pollTaskStatus() {
               const resultSel = document.getElementById('reviewResultSelect');
               const videoSel = document.getElementById('reviewVideoSelect');
               if (!resultSel || !videoSel) return;
-              const targetJsonName = pollData.result.json_path.split(/[/\\]/).pop();
               const targetVideoName = pollData.result.video_path.split(/[/\\]/).pop();
 
-              let jsonFound = false;
-              Array.from(resultSel.options).forEach((o) => {
-                if (o.value.includes(targetJsonName)) {
-                  resultSel.value = o.value;
-                  jsonFound = true;
-                }
-              });
-              if (jsonFound) resultSel.dispatchEvent(new Event('change'));
-
+              // Select video, which triggers autoSelectResultByVideoPrefix (handling language preference)
               Array.from(videoSel.options).forEach((o) => {
                 if (o.value.includes(targetVideoName)) videoSel.value = o.value;
               });
               videoSel.dispatchEvent(new Event('change'));
+
             });
           }, 1500);
         }
         break;
       } else if (pollData.status === 'failed') {
+        const errorMsg = pollData.error_msg || t('unknown_error');
         if (log) {
-          appendLog(log, `[ERROR] ${pollData.error_msg || t('unknown_error')}\n`);
+          appendLog(log, `[ERROR] ${errorMsg}\n`);
           log.scrollTop = log.scrollHeight;
         }
-        notify(t('process_failed_check_log'));
+        notify(`${t('process_failed_check_log')}\n${t('reason')}: ${errorMsg}`);
         break;
       } else if (pollData.status === 'none') {
         break;
@@ -2082,8 +2095,10 @@ function hashStringToHue(input) {
 
 function colorForAction(action, idx) {
   const base = (action && (action.label || action.therblig || action.value_added)) || '';
-  const hue = hashStringToHue(`${base}#${idx}`);
-  return `hsl(${hue} 70% 55%)`;
+  const baseTrimmed = String(base || '').trim();
+  const n = Number.isFinite(Number(idx)) ? Number(idx) : 0;
+  const hue = baseTrimmed ? (hashStringToHue(`${baseTrimmed}#${n}`) + n * 47) % 360 : (n * 137.508) % 360;
+  return `hsl(${hue}, 70%, 55%)`;
 }
 
 function updateTimelineActive(index) {
@@ -2175,7 +2190,9 @@ function renderActionTimeline(actions) {
     seg.dataset.index = String(idx);
     seg.style.left = leftPct + '%';
     seg.style.width = widthPct + '%';
-    seg.style.background = colorForAction(act, idx);
+    const segColor = colorForAction(act, idx);
+    seg.style.background = segColor;
+    seg.style.backgroundColor = segColor;
     const label = act?.label ? String(act.label) : '';
     seg.title = `${idx + 1} ${label} ${formatSecondsShort(s)} - ${formatSecondsShort(e)}`;
     elTimelineSegments.appendChild(seg);
@@ -2277,6 +2294,9 @@ function updateTimelineSegmentStyle(idx) {
   const widthPct = ((Math.min(bounds.end, e) - Math.max(bounds.start, s)) / denom) * 100;
   seg.style.left = leftPct + '%';
   seg.style.width = Math.max(0, widthPct) + '%';
+  const segColor = colorForAction(act, idx);
+  seg.style.background = segColor;
+  seg.style.backgroundColor = segColor;
   const label = act?.label ? String(act.label) : '';
   seg.title = `${idx + 1} ${label} ${formatSecondsShort(s)} - ${formatSecondsShort(e)}`;
 }
@@ -2380,8 +2400,11 @@ function autoSelectResultByVideoPrefix(videoPath) {
   const videoBase = videoFile.replace(/\.[^.]+$/, '');
   if (!videoBase) return;
 
-  let exactMatch = null;
-  const prefixCandidates = [];
+  const targetPrefix = currentLang === 'en' ? 'en_' + videoBase : videoBase;
+
+  let best = null;
+  let bestScore = -1;
+  let bestLen = -1;
 
   for (const opt of Array.from(resSel.options)) {
     const val = opt.value || '';
@@ -2390,26 +2413,33 @@ function autoSelectResultByVideoPrefix(videoPath) {
     const resBase = resFile.replace(/\.[^.]+$/, '');
     if (!resBase) continue;
 
-    if (resBase === videoBase) {
-      if (val.endsWith('.md')) {
-        exactMatch = opt;
-        break;
-      }
-      if (!exactMatch) exactMatch = opt;
-    }
+    let score = 0;
 
-    if (resBase.startsWith(videoBase) || videoBase.startsWith(resBase)) {
-      const commonLen = Math.min(resBase.length, videoBase.length);
-      prefixCandidates.push({ opt, commonLen, resBaseLen: resBase.length });
+    // 1. Language match
+    if (resBase === targetPrefix) score += 100;
+    else if (resBase.startsWith(targetPrefix)) score += 50;
+
+    // 2. Fallback match (Original logic components)
+    if (resBase === videoBase) score += 20;
+    else if (resBase.startsWith(videoBase)) score += 10;
+    else if (videoBase.startsWith(resBase)) score += 5;
+
+    // 3. File type preference
+    if (val.endsWith('.md')) score += 2;
+
+    if (score > 0) {
+      if (score > bestScore) {
+        bestScore = score;
+        best = opt;
+        bestLen = resBase.length;
+      } else if (score === bestScore) {
+        if (resBase.length > bestLen) {
+          best = opt;
+          bestLen = resBase.length;
+        }
+      }
     }
   }
-
-  const best =
-    exactMatch ||
-    prefixCandidates.sort((a, b) => {
-      if (b.commonLen !== a.commonLen) return b.commonLen - a.commonLen;
-      return b.resBaseLen - a.resBaseLen;
-    })[0]?.opt;
 
   if (!best) {
     resSel.value = '';
@@ -2874,7 +2904,14 @@ async function refreshStationCompareChart() {
   const pathsJson = Array.from(resSel.options)
     .map((o) => o.value || '')
     .filter((v) => v && v.endsWith('.json'));
-  const paths = (pathsMd.length ? pathsMd : pathsJson).slice(0, STATION_COMPARE_MAX);
+
+  const paths = (currentLang === 'en' ? pathsMd.filter((v) => v.split('/').pop().startsWith('en_')) : pathsMd.filter((v) => !v.split('/').pop().startsWith('en_'))).slice(0, STATION_COMPARE_MAX);
+  if (paths.length === 0) {
+    // Fallback to all MD or all JSON if no language-specific MD files found
+    const allPaths = (pathsMd.length ? pathsMd : pathsJson).slice(0, STATION_COMPARE_MAX);
+    paths.push(...allPaths);
+  }
+
   for (const p of paths) {
     const key = String(p || '');
     if (key && !stationCompareVisibleByPath.has(key)) stationCompareVisibleByPath.set(key, true);
@@ -2924,33 +2961,36 @@ function renderLegacyView() {
   if (legacy) legacy.style.display = 'none';
 }
 
-const defaultActionsHeaders = [
-  '序号',
-  '动作描述',
-  '动素(Therbligs)',
-  '是否加工',
-  '是否搬运',
-  '是否检查',
-  '是否等待',
-  '预估耗时(s)',
-  '增值/非增值',
-  '左右手',
-  '时间区间',
-  '波动来源'
-];
+function getDefaultActionsHeaders() {
+  return [
+    t('action_index'),
+    t('action_desc'),
+    t('therblig_type'),
+    t('is_process'),
+    t('is_move'),
+    t('is_check'),
+    t('is_wait'),
+    t('estimated_duration'),
+    t('value_added'),
+    t('hands'),
+    t('time_range'),
+    t('variation_source')
+  ];
+}
 
 function renderDefaultActionsHeader() {
   const elHeader = document.getElementById('actionsListHeader');
   if (!elHeader) return;
   elHeader.innerHTML = '';
   
-  if (defaultActionsHeaders.length !== 12) {
-      elHeader.style.gridTemplateColumns = `repeat(${defaultActionsHeaders.length}, minmax(100px, 1fr))`;
+  const headers = getDefaultActionsHeaders();
+  if (headers.length !== 12) {
+      elHeader.style.gridTemplateColumns = `repeat(${headers.length}, minmax(100px, 1fr))`;
   } else {
       elHeader.style.removeProperty('grid-template-columns');
   }
 
-  defaultActionsHeaders.forEach(h => {
+  headers.forEach(h => {
     const div = document.createElement('div');
     div.textContent = h;
     elHeader.appendChild(div);
@@ -2981,8 +3021,8 @@ function renderActionsTable(table, actions) {
   const rawHeaders =
     table && Array.isArray(table.headers) && table.headers.length > 0
       ? table.headers
-      : defaultActionsHeaders;
-  const headersRaw = Array.isArray(rawHeaders) ? [...rawHeaders] : [...defaultActionsHeaders];
+      : getDefaultActionsHeaders();
+  const headersRaw = Array.isArray(rawHeaders) ? [...rawHeaders] : [...getDefaultActionsHeaders()];
   const rowsRaw = table && Array.isArray(table.rows) ? table.rows : [];
   const canIndexByRow = Array.isArray(rowsRaw) && rowsRaw.length > 0 && rowsRaw.length === currentActions.length;
 
@@ -3198,7 +3238,7 @@ function renderActions(actions) {
            act.variation || ''
        ];
    });
-   renderActionsTable({ headers: defaultActionsHeaders, rows: rows }, actions);
+   renderActionsTable({ headers: getDefaultActionsHeaders(), rows: rows }, actions);
 }
 
 let chartInstance = null;
@@ -3717,6 +3757,8 @@ function setupReviewUI() {
     };
 
     setVal('editIndex', act.index || index + 1);
+    setVal('editStartTime', act.start_time !== undefined ? act.start_time : '');
+    setVal('editEndTime', act.end_time !== undefined ? act.end_time : '');
     setVal('editLabel', act.label || '');
     setVal('editIsProcess', act.is_process || '');
     setVal('editIsMove', act.is_move || '');
@@ -3820,7 +3862,8 @@ function setupReviewUI() {
       const newAction = buildNewAction(prev, next);
       currentActions.splice(insertIndex, 0, newAction);
       rebuildActionIndexes();
-      await persistActionsUpdate();
+      await persistActionsUpdate({ silentSuccess: true });
+      openEditModal(insertIndex);
     };
 
   if (btnDeleteAction)
@@ -3879,6 +3922,58 @@ function setupReviewUI() {
         const el = document.getElementById(id);
         return el ? el.value : '';
       };
+
+      const st = parseFloat(getVal('editStartTime'));
+      const et = parseFloat(getVal('editEndTime'));
+
+      // Validate time range against adjacent actions
+      if (editingActionIndex > 0) {
+        const prev = currentActions[editingActionIndex - 1];
+        if (prev && Number.isFinite(parseFloat(prev.start_time))) {
+          if (st < parseFloat(prev.start_time)) {
+            notify(t('start_time_earlier_than_prev', { time: prev.start_time }));
+            return;
+          }
+        }
+      }
+
+      if (editingActionIndex < currentActions.length - 1) {
+        const next = currentActions[editingActionIndex + 1];
+        if (next && Number.isFinite(parseFloat(next.end_time))) {
+          if (et > parseFloat(next.end_time)) {
+            notify(t('end_time_later_than_next', { time: next.end_time }));
+            return;
+          }
+        }
+      }
+
+      if (Number.isFinite(st)) act.start_time = st;
+      if (Number.isFinite(et)) act.end_time = et;
+      
+      // Ensure start <= end for current action
+      if (act.start_time > act.end_time) {
+        notify(t('start_time_later_than_end_time'));
+        return;
+      }
+      updateActionComputedFields(act);
+
+      // Update previous action's end time
+      if (editingActionIndex > 0) {
+        const prev = currentActions[editingActionIndex - 1];
+        if (prev) {
+          prev.end_time = act.start_time;
+          updateActionComputedFields(prev);
+        }
+      }
+
+      // Update next action's start time
+      if (editingActionIndex < currentActions.length - 1) {
+        const next = currentActions[editingActionIndex + 1];
+        if (next) {
+          next.start_time = act.end_time;
+          updateActionComputedFields(next);
+        }
+      }
 
       act.label = getVal('editLabel');
       act.is_process = getVal('editIsProcess');

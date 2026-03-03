@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 
 from backend.app_config import ANALYZE_CONCURRENCY
 from backend.app_db import get_user_api_key_model
+from backend.translate import translate_file
 
 
 USER_TASKS: Dict[str, Dict[str, object]] = {}
@@ -121,16 +122,6 @@ def background_analyze_task(
 
         video_result_filename = result_filename.replace(".md", ".mp4")
         output_video_path = os.path.join("result", video_result_filename)
-        try:
-            if not os.path.exists(source_video_path):
-                raise FileNotFoundError(f"source video not found: {source_video_path}")
-            os.makedirs(os.path.dirname(output_video_path), exist_ok=True)
-            _append_task_log(username, f"[INFO] Skipping YOLO detection. Copying video to {output_video_path}\n")
-            shutil.copy2(source_video_path, output_video_path)
-            _append_task_log(username, f"[INFO] Copied original video to {output_video_path}\n")
-        except Exception as copy_err:
-            _append_task_log(username, f"[ERROR] Copy failed: {str(copy_err)}\n")
-            output_video_path = None
 
         frames_dir = os.path.join("data", base_name)
         image_paths = _iter_image_files(frames_dir)
@@ -146,104 +137,155 @@ def background_analyze_task(
                 task["error_msg"] = "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000"
             return
 
-        _set_task_progress(username, "analyze", 0, 0)
-        _append_task_log(username, f"[INFO] Starting analysis for {video_path}\n")
-        _append_task_log(username, f"[INFO] Prompt template: {prompt_file_arg}\n")
+        max_retries = 3
+        final_response = None
+        for attempt in range(max_retries + 1):
+            try:
+                # 1. Copy video
+                try:
+                    if not os.path.exists(source_video_path):
+                        raise FileNotFoundError(f"source video not found: {source_video_path}")
+                    os.makedirs(os.path.dirname(output_video_path), exist_ok=True)
+                    if not os.path.exists(output_video_path):
+                        _append_task_log(username, f"[INFO] Copying video to {output_video_path}\n")
+                        shutil.copy2(source_video_path, output_video_path)
+                        _append_task_log(username, f"[INFO] Copied original video to {output_video_path}\n")
+                except Exception as copy_err:
+                    raise Exception(f"Copy failed: {str(copy_err)}")
 
-        proc_main = subprocess.Popen(
-            cmd_main,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            env=env,
-        )
-        analysis_stdout = ""
-        analysis_stderr = ""
+                # 2. Analysis
+                _set_task_progress(username, "analyze", 0, 0)
+                _append_task_log(username, f"[INFO] Starting analysis for {video_path} (Attempt {attempt + 1}/{max_retries + 1})\n")
+                _append_task_log(username, f"[INFO] Prompt template: {prompt_file_arg}\n")
 
-        fds = [proc_main.stdout.fileno(), proc_main.stderr.fileno()]
-        while fds:
-            ready, _, _ = select.select(fds, [], [])
-            for fd in ready:
-                if fd == proc_main.stdout.fileno():
-                    line = proc_main.stdout.readline()
-                    if line:
-                        analysis_stdout += line
-                        log(f"[ANALYSIS]{line}".encode("utf-8"))
-                        try:
-                            stripped = line.strip()
-                            if stripped.startswith("{") and stripped.endswith("}"):
-                                evt = json.loads(stripped)
-                                if isinstance(evt, dict):
-                                    evt_type = evt.get("event")
-                                    if evt_type == "moonshot.chat_completions.request.batch":
-                                        current_batch_start = evt.get("batch_start", 0)
-                                        batch_count = evt.get("batch_frame_count", 0)
-                                        processed = current_batch_start + int(batch_count / 3)
-                                        _set_task_progress(username, "analyze", processed, total_images)
-                                    elif evt_type == "moonshot.chat_completions.content.batch":
-                                        current_batch_start = evt.get("batch_start", 0)
-                                        batch_count = evt.get("batch_frame_count", 0)
-                                        processed = current_batch_start + batch_count
-                                        _set_task_progress(username, "analyze", processed, total_images)
-                                    elif evt_type == "moonshot.chat_completions.request":
-                                        _set_task_progress(username, "analyze", 0, total_images)
-                                    elif evt_type == "moonshot.chat_completions.content":
-                                        _set_task_progress(username, "analyze", total_images, total_images)
-                                    elif evt_type == "kimi.files.cleared":
-                                        count = evt.get("count", 0)
-                                        log(f"[INFO] 已清理 Kimi 云端历史文件: {count} 个\n".encode("utf-8"))
-                        except Exception:
-                            pass
-                    else:
-                        fds.remove(fd)
-                elif fd == proc_main.stderr.fileno():
-                    line = proc_main.stderr.readline()
-                    if line:
-                        analysis_stderr += line
-                        log(f"[ANALYSIS_ERR]{line}".encode("utf-8"))
-                    else:
-                        fds.remove(fd)
-            if not fds or (proc_main.poll() is not None):
+                proc_main = subprocess.Popen(
+                    cmd_main,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                    env=env,
+                )
+                analysis_stdout = ""
+                analysis_stderr = ""
+
+                fds = [proc_main.stdout.fileno(), proc_main.stderr.fileno()]
+                while fds:
+                    ready, _, _ = select.select(fds, [], [])
+                    for fd in ready:
+                        if fd == proc_main.stdout.fileno():
+                            line = proc_main.stdout.readline()
+                            if line:
+                                analysis_stdout += line
+                                log(f"[ANALYSIS]{line}".encode("utf-8"))
+                                try:
+                                    stripped = line.strip()
+                                    if stripped.startswith("{") and stripped.endswith("}"):
+                                        evt = json.loads(stripped)
+                                        if isinstance(evt, dict):
+                                            evt_type = evt.get("event")
+                                            if evt_type == "moonshot.chat_completions.request.batch":
+                                                current_batch_start = evt.get("batch_start", 0)
+                                                batch_count = evt.get("batch_frame_count", 0)
+                                                processed = current_batch_start + int(batch_count / 3)
+                                                _set_task_progress(username, "analyze", processed, total_images)
+                                            elif evt_type == "moonshot.chat_completions.content.batch":
+                                                current_batch_start = evt.get("batch_start", 0)
+                                                batch_count = evt.get("batch_frame_count", 0)
+                                                processed = current_batch_start + batch_count
+                                                _set_task_progress(username, "analyze", processed, total_images)
+                                            elif evt_type == "moonshot.chat_completions.request":
+                                                _set_task_progress(username, "analyze", 0, total_images)
+                                            elif evt_type == "moonshot.chat_completions.content":
+                                                _set_task_progress(username, "analyze", total_images, total_images)
+                                            elif evt_type == "kimi.files.cleared":
+                                                count = evt.get("count", 0)
+                                                log(f"[INFO] 已清理 Kimi 云端历史文件: {count} 个\n".encode("utf-8"))
+                                except Exception:
+                                    pass
+                            else:
+                                fds.remove(fd)
+                        elif fd == proc_main.stderr.fileno():
+                            line = proc_main.stderr.readline()
+                            if line:
+                                analysis_stderr += line
+                                log(f"[ANALYSIS_ERR]{line}".encode("utf-8"))
+                            else:
+                                fds.remove(fd)
+                    if not fds or (proc_main.poll() is not None):
+                        break
+
+                status = "success"
+                error_details = None
+                if (proc_main.returncode or 0) != 0:
+                    status = "partial"
+                    error_details = "Gemini analysis failed"
+
+                response = {
+                    "status": status,
+                    "json_path": result_path,
+                    "video_path": output_video_path,
+                    "error": error_details,
+                    "logs": {
+                        "analysis": {"command": " ".join(cmd_main), "stdout": analysis_stdout, "stderr": analysis_stderr},
+                        "annotation": {"command": "skipped", "stdout": "", "stderr": ""},
+                    },
+                }
+
+                if not os.path.exists(result_path):
+                    raise Exception("result_not_generated_check_logs")
+
+                if (proc_main.returncode or 0) != 0:
+                    raise Exception(error_details or "analysis_failed")
+
+                # Store response and break loop on success
+                final_response = response
                 break
 
-        status = "success"
-        error_details = None
-        if (proc_main.returncode or 0) != 0:
-            status = "partial"
-            error_details = "Gemini analysis failed"
+            except Exception as attempt_err:
+                _append_task_log(username, f"[WARNING] Attempt {attempt + 1} failed: {str(attempt_err)}\n")
+                
+                # Cleanup video and result on failure
+                if output_video_path and os.path.exists(output_video_path):
+                    try:
+                        os.remove(output_video_path)
+                        _append_task_log(username, f"[INFO] Deleted video {output_video_path} for cleanup\n")
+                    except: pass
+                
+                if os.path.exists(result_path):
+                    try:
+                        os.remove(result_path)
+                    except: pass
 
-        response = {
-            "status": status,
-            "json_path": result_path,
-            "video_path": output_video_path,
-            "error": error_details,
-            "logs": {
-                "analysis": {"command": " ".join(cmd_main), "stdout": analysis_stdout, "stderr": analysis_stderr},
-                "annotation": {"command": "skipped", "stdout": "", "stderr": ""},
-            },
-        }
+                if attempt == max_retries:
+                    with USER_TASKS_LOCK:
+                        task["status"] = "failed"
+                        task["error_msg"] = f"Failed after {max_retries + 1} attempts: {str(attempt_err)}"
+                        task["phase"] = "failed"
+                    return
+                
+                time.sleep(3)
 
-        if not os.path.exists(result_path):
+        # Auto-translate result and complete task
+        if final_response:
+            try:
+                translate_api_key = None
+                if normalized_model.startswith("kimi") or normalized_model.startswith("moonshot"):
+                    translate_api_key = api_key
+                
+                _append_task_log(username, f"[INFO] Starting auto-translation for {result_path}...\n")
+                translate_file(result_path, translate_api_key)
+                _append_task_log(username, f"[INFO] Auto-translation completed.\n")
+            except Exception as e:
+                _append_task_log(username, f"[WARNING] Auto-translation failed: {str(e)}\n")
+            
+            # Update status to completed after translation
             with USER_TASKS_LOCK:
-                task["status"] = "failed"
-                task["error_msg"] = "result_not_generated_check_logs"
-                task["phase"] = "failed"
-            return
+                task["result"] = final_response
+                task["status"] = "completed"
+                task["phase"] = "completed"
 
-        if (proc_main.returncode or 0) != 0:
-            with USER_TASKS_LOCK:
-                task["result"] = response
-                task["status"] = "failed"
-                task["error_msg"] = error_details or "analysis_failed"
-                task["phase"] = "failed"
-            return
-
-        with USER_TASKS_LOCK:
-            task["result"] = response
-            task["status"] = "completed"
-            task["phase"] = "completed"
     except Exception as e:
         with USER_TASKS_LOCK:
             task["status"] = "failed"

@@ -1375,11 +1375,7 @@
 
             if (isMd) {
                 renderMdView(data);
-                if (data.actions_table && data.actions_table.headers && data.actions_table.rows) {
-                    renderActionsTable(data.actions_table, data.actions || []);
-                } else {
-                    renderActions(data.actions || []);
-                }
+                renderActions(data.actions || []);
                 // MD view does not use legacy stats/advice
             } else {
                 renderLegacyView();
