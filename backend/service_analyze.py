@@ -10,7 +10,8 @@ import time
 from typing import Dict, List, Optional
 
 from backend.app_config import ANALYZE_CONCURRENCY
-from backend.app_db import get_user_api_key_model
+from backend.app_db import add_detection_history, get_user_api_key_model
+from backend.service_media import _get_video_duration
 from backend.translate import translate_file
 
 
@@ -33,10 +34,101 @@ def _iter_image_files(root: str) -> List[str]:
 
 def _normalize_kimi_cli_model(model: str) -> str:
     text = str(model or "").strip()
+    if not text:
+        return "kimi-2.5"
     lowered = text.lower()
     if lowered in ("genieviewk2.5", "genieview-k2.5") or text == "GenieviewK2.5":
         return "kimi-2.5"
+    if lowered in ("qwen3.5", "qwen3.5-plus", "qwen-3.5", "qwen-3.5-plus"):
+        return "qwen3.5-plus"
     return text or model
+
+
+def _is_qwen_model(model: str) -> bool:
+    return str(model or "").lower().startswith("qwen3.5")
+
+
+def _extract_tokens_from_md(path: str) -> Dict[str, Optional[int]]:
+    token_input = None
+    token_output = None
+    token_thinking = None
+    token_total = None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = []
+            for _ in range(30):
+                line = f.readline()
+                if not line:
+                    break
+                lines.append(line.strip())
+    except Exception:
+        return {
+            "token_input": None,
+            "token_output": None,
+            "token_thinking": None,
+            "token_total": None,
+        }
+    patterns = {
+        "token_input": [
+            r"Input Token\s*[:：]\s*(\d+)",
+            r"输入\s*Token\s*[:：]\s*(\d+)",
+            r"输入\s*token\s*[:：]\s*(\d+)",
+        ],
+        "token_output": [
+            r"Output Token\s*[:：]\s*(\d+)",
+            r"输出\s*Token\s*[:：]\s*(\d+)",
+            r"输出\s*token\s*[:：]\s*(\d+)",
+        ],
+        "token_thinking": [
+            r"Thinking Token\s*[:：]\s*(\d+)",
+            r"思考\s*Token\s*[:：]\s*(\d+)",
+            r"思考\s*token\s*[:：]\s*(\d+)",
+        ],
+        "token_total": [
+            r"Total Token\s*[:：]\s*(\d+)",
+            r"总\s*Token\s*[:：]\s*(\d+)",
+        ],
+    }
+    import re
+
+    for line in lines:
+        for key, pats in patterns.items():
+            if key == "token_input" and token_input is not None:
+                continue
+            if key == "token_output" and token_output is not None:
+                continue
+            if key == "token_thinking" and token_thinking is not None:
+                continue
+            if key == "token_total" and token_total is not None:
+                continue
+            for pat in pats:
+                m = re.search(pat, line, flags=re.IGNORECASE)
+                if not m:
+                    continue
+                val = m.group(1)
+                try:
+                    num = int(val)
+                except Exception:
+                    num = None
+                if key == "token_input":
+                    token_input = num
+                elif key == "token_output":
+                    token_output = num
+                elif key == "token_thinking":
+                    token_thinking = num
+                elif key == "token_total":
+                    token_total = num
+                break
+    if token_total is None:
+        parts = [p for p in [token_input, token_output, token_thinking] if isinstance(p, int)]
+        if parts:
+            token_total = int(sum(parts))
+    return {
+        "token_input": token_input,
+        "token_output": token_output,
+        "token_thinking": token_thinking,
+        "token_total": token_total,
+    }
 
 
 def _set_task_progress(username: str, phase: str, current: int, total: int) -> None:
@@ -94,10 +186,23 @@ def background_analyze_task(
         env.pop("GOOGLE_API_KEY", None)
         env.pop("GEMINI_API_KEY", None)
         env.pop("MOONSHOT_API_KEY", None)
+        warnings_filters = str(env.get("PYTHONWARNINGS") or "").strip()
+        suppress_google_py39 = "ignore:You are using a Python version 3.9 past its end of life:FutureWarning"
+        if warnings_filters:
+            env["PYTHONWARNINGS"] = warnings_filters + "," + suppress_google_py39
+        else:
+            env["PYTHONWARNINGS"] = suppress_google_py39
 
         normalized_model = _normalize_kimi_cli_model(model)
         if normalized_model.startswith("kimi") or normalized_model.startswith("moonshot"):
             env["MOONSHOT_API_KEY"] = api_key
+        elif _is_qwen_model(normalized_model):
+            env["DASHSCOPE_API_KEY"] = api_key
+            env.pop("http_proxy", None)
+            env.pop("https_proxy", None)
+            env.pop("HTTP_PROXY", None)
+            env.pop("HTTPS_PROXY", None)
+            env.pop("ALL_PROXY", None)
         else:
             env["GOOGLE_API_KEY"] = api_key
 
@@ -111,32 +216,32 @@ def background_analyze_task(
             normalized_model,
             "--out",
             result_path,
-            "--fps",
-            str(fps),
-            "--frames-dir",
-            os.path.join("data", base_name),
             "--prompt-file",
             prompt_file_arg,
         ]
+        if not _is_qwen_model(normalized_model):
+            cmd_main.extend(["--fps", str(fps), "--frames-dir", os.path.join("data", base_name)])
         if sop_content:
             cmd_main.extend(["--sop-content", sop_content])
 
         video_result_filename = result_filename.replace(".md", ".mp4")
         output_video_path = os.path.join("result", video_result_filename)
 
-        frames_dir = os.path.join("data", base_name)
-        image_paths = _iter_image_files(frames_dir)
-        total_images = len(image_paths)
-        if total_images == 0:
-            with USER_TASKS_LOCK:
-                task["status"] = "failed"
-                task["error_msg"] = "no_images_found"
-            return
-        if total_images > 1000:
-            with USER_TASKS_LOCK:
-                task["status"] = "failed"
-                task["error_msg"] = "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000"
-            return
+        total_images = 1
+        if not _is_qwen_model(normalized_model):
+            frames_dir = os.path.join("data", base_name)
+            image_paths = _iter_image_files(frames_dir)
+            total_images = len(image_paths)
+            if total_images == 0:
+                with USER_TASKS_LOCK:
+                    task["status"] = "failed"
+                    task["error_msg"] = "no_images_found"
+                return
+            if total_images > 1000:
+                with USER_TASKS_LOCK:
+                    task["status"] = "failed"
+                    task["error_msg"] = "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000"
+                return
 
         max_retries = 3
         final_response = None
@@ -155,7 +260,7 @@ def background_analyze_task(
                     raise Exception(f"Copy failed: {str(copy_err)}")
 
                 # 2. Analysis
-                _set_task_progress(username, "analyze", 0, 0)
+                _set_task_progress(username, "analyze", 0, total_images)
                 _append_task_log(username, f"[INFO] Starting analysis for {video_path} (Attempt {attempt + 1}/{max_retries + 1})\n")
                 _append_task_log(username, f"[INFO] Prompt template: {prompt_file_arg}\n")
 
@@ -189,16 +294,28 @@ def background_analyze_task(
                                             if evt_type == "moonshot.chat_completions.request.batch":
                                                 current_batch_start = evt.get("batch_start", 0)
                                                 batch_count = evt.get("batch_frame_count", 0)
-                                                processed = current_batch_start + int(batch_count / 3)
+                                                batch_end = evt.get("batch_end")
+                                                if isinstance(batch_end, int):
+                                                    processed = int(batch_end)
+                                                else:
+                                                    processed = int(current_batch_start) + int(batch_count)
                                                 _set_task_progress(username, "analyze", processed, total_images)
                                             elif evt_type == "moonshot.chat_completions.content.batch":
                                                 current_batch_start = evt.get("batch_start", 0)
                                                 batch_count = evt.get("batch_frame_count", 0)
-                                                processed = current_batch_start + batch_count
+                                                batch_end = evt.get("batch_end")
+                                                if isinstance(batch_end, int):
+                                                    processed = int(batch_end)
+                                                else:
+                                                    processed = int(current_batch_start) + int(batch_count)
                                                 _set_task_progress(username, "analyze", processed, total_images)
                                             elif evt_type == "moonshot.chat_completions.request":
                                                 _set_task_progress(username, "analyze", 0, total_images)
                                             elif evt_type == "moonshot.chat_completions.content":
+                                                _set_task_progress(username, "analyze", total_images, total_images)
+                                            elif evt_type == "qwen.chat_completions.request":
+                                                _set_task_progress(username, "analyze", 0, total_images)
+                                            elif evt_type == "qwen.chat_completions.content":
                                                 _set_task_progress(username, "analyze", total_images, total_images)
                                             elif evt_type == "kimi.files.cleared":
                                                 count = evt.get("count", 0)
@@ -219,9 +336,10 @@ def background_analyze_task(
 
                 status = "success"
                 error_details = None
-                if (proc_main.returncode or 0) != 0:
+                exit_code = int(proc_main.returncode or 0)
+                if exit_code != 0:
                     status = "partial"
-                    error_details = "Gemini analysis failed"
+                    error_details = f"analysis_subprocess_failed(exit_code={exit_code}, model={normalized_model})"
 
                 response = {
                     "status": status,
@@ -235,11 +353,18 @@ def background_analyze_task(
                 }
 
                 if not os.path.exists(result_path):
-                    raise Exception("result_not_generated_check_logs")
+                    stderr_tail = (analysis_stderr or "").strip()[-1200:]
+                    stdout_tail = (analysis_stdout or "").strip()[-1200:]
+                    details = stderr_tail or stdout_tail or "no_subprocess_output"
+                    raise Exception(
+                        f"result_not_generated_check_logs | model={normalized_model} | exit_code={exit_code} | details={details}"
+                    )
 
-                if (proc_main.returncode or 0) != 0:
+                if exit_code != 0:
                     raise Exception(error_details or "analysis_failed")
 
+                if _is_qwen_model(normalized_model):
+                    _set_task_progress(username, "analyze", total_images, total_images)
                 # Store response and break loop on success
                 final_response = response
                 break
@@ -281,6 +406,28 @@ def background_analyze_task(
                 except Exception as e:
                     _append_task_log(username, f"[WARNING] Auto-translation failed: {str(e)}\n")
             
+            try:
+                token_info = _extract_tokens_from_md(result_path)
+                video_duration = None
+                if output_video_path and os.path.exists(output_video_path):
+                    video_duration = _get_video_duration(output_video_path)
+                if video_duration is None and source_video_path and os.path.exists(source_video_path):
+                    video_duration = _get_video_duration(source_video_path)
+                add_detection_history(
+                    username=username,
+                    video_name=os.path.basename(output_video_path) if output_video_path else None,
+                    video_path=output_video_path,
+                    result_path=result_path,
+                    model=normalized_model,
+                    created_at=datetime.datetime.now().isoformat(),
+                    video_seconds=video_duration,
+                    token_input=token_info.get("token_input"),
+                    token_output=token_info.get("token_output"),
+                    token_thinking=token_info.get("token_thinking"),
+                    token_total=token_info.get("token_total"),
+                )
+            except Exception as e:
+                _append_task_log(username, f"[WARNING] history record failed: {str(e)}\n")
             # Update status to completed after translation
             with USER_TASKS_LOCK:
                 task["result"] = final_response
@@ -312,6 +459,8 @@ def handle_task_status(handler, user: Dict[str, object]) -> bool:
             "phase": task.get("phase"),
             "progress": task.get("progress"),
             "kind": task.get("kind"),
+            "model": task.get("model"),
+            "progress_unit": task.get("progress_unit"),
         }
         decoded_logs = []
         for log in response["logs"]:
@@ -360,6 +509,8 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
             model = user_model
         else:
             model = "kimi-2.5"
+        normalized_model = _normalize_kimi_cli_model(model)
+        is_qwen = _is_qwen_model(normalized_model)
 
         try:
             fps = float(fps_raw)
@@ -399,34 +550,36 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
             )
             return True
 
-        frames_dir = os.path.join("data", base_name)
-        if not os.path.isdir(frames_dir):
-            handler.send_json(
-                400,
-                {
-                    "error": "missing_frames_dir",
-                    "details": "请先上传视频并完成图片拆分后再开始检测",
-                    "video_path": output_video_path,
-                },
-            )
-            return True
-        image_count = len(_iter_image_files(frames_dir))
-        if image_count == 0:
-            handler.send_json(
-                400,
-                {"error": "missing_frames", "details": "未找到拆分后的图片，请先完成图片拆分", "video_path": output_video_path},
-            )
-            return True
-        if image_count > 1000:
-            handler.send_json(
-                400,
-                {
-                    "error": "too_many_frames",
-                    "details": "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000",
-                    "video_path": output_video_path,
-                },
-            )
-            return True
+        image_count = 1
+        if not is_qwen:
+            frames_dir = os.path.join("data", base_name)
+            if not os.path.isdir(frames_dir):
+                handler.send_json(
+                    400,
+                    {
+                        "error": "missing_frames_dir",
+                        "details": "请先上传视频并完成图片拆分后再开始检测",
+                        "video_path": output_video_path,
+                    },
+                )
+                return True
+            image_count = len(_iter_image_files(frames_dir))
+            if image_count == 0:
+                handler.send_json(
+                    400,
+                    {"error": "missing_frames", "details": "未找到拆分后的图片，请先完成图片拆分", "video_path": output_video_path},
+                )
+                return True
+            if image_count > 1000:
+                handler.send_json(
+                    400,
+                    {
+                        "error": "too_many_frames",
+                        "details": "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000",
+                        "video_path": output_video_path,
+                    },
+                )
+                return True
 
         ui_lang_raw = handler.headers.get("X-UI-Lang", "") or data.get("ui_lang", "") or ""
         ui_lang = str(ui_lang_raw).strip().lower()
@@ -465,12 +618,14 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                     "phase": "analyze",
                     "progress": {"current": 0, "total": image_count},
                     "kind": "analyze",
+                    "model": normalized_model,
+                    "progress_unit": ("request" if is_qwen else "frame"),
                     "prompt_path": prompt_path,
                     "ui_lang": ui_lang,
                 }
             t = threading.Thread(
                 target=background_analyze_task,
-                args=(username, video_path, model, fps, api_key, prompt_path, sop_content, timestamp, ui_lang),
+                args=(username, video_path, normalized_model, fps, api_key, prompt_path, sop_content, timestamp, ui_lang),
                 daemon=True,
             )
             t.start()
@@ -481,6 +636,7 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                     "message": "任务已在后台启动",
                     "video_path": output_video_path,
                     "prompt_path": prompt_path,
+                    "resolved_model": normalized_model,
                     "ui_lang": ui_lang,
                 },
             )

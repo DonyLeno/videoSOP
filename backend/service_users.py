@@ -1,4 +1,5 @@
 import json
+import urllib.parse
 from typing import Dict, List
 
 from backend.app_auth import create_token
@@ -7,6 +8,7 @@ from backend.app_db import (
     get_user_login,
     get_user_me,
     hash_password,
+    list_detection_history,
     list_users,
     update_user,
     verify_password,
@@ -166,4 +168,31 @@ def handle_list_users(handler, user: Dict[str, object]) -> bool:
         handler.send_json(500, {"error": "db_error", "details": str(e)})
         return True
     handler.send_json(200, {"users": items})
+    return True
+
+
+def handle_user_history(handler, user: Dict[str, object], parsed_path) -> bool:
+    try:
+        params = urllib.parse.parse_qs(parsed_path.query or "")
+    except Exception:
+        params = {}
+    target = ""
+    if params.get("username"):
+        target = str(params.get("username")[0] or "").strip()
+    if not target:
+        target = str(user.get("username") or "").strip()
+    if not target:
+        handler.send_json(400, {"error": "missing_username"})
+        return True
+    if user.get("role") != "admin" and target != str(user.get("username") or "").strip():
+        handler.send_json(403, {"error": "forbidden"})
+        return True
+    try:
+        limit = params.get("limit")
+        limit_val = int(limit[0]) if limit else 200
+        items = list_detection_history(target, limit_val)
+    except Exception as e:
+        handler.send_json(500, {"error": "db_error", "details": str(e)})
+        return True
+    handler.send_json(200, {"items": items})
     return True

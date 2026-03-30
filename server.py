@@ -25,6 +25,7 @@ from backend.service_users import (
     handle_list_users,
     handle_login,
     handle_me,
+    handle_user_history,
     handle_update_user,
 )
 
@@ -249,6 +250,13 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 if not user:
                     return
                 handle_list_users(self, user)
+                return
+
+            if parsed_path.path == "/api/user_history":
+                user = self.require_auth()
+                if not user:
+                    return
+                handle_user_history(self, user, parsed_path)
                 return
 
             if parsed_path.path == "/api/task_status":

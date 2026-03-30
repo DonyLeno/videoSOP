@@ -3,5 +3,6 @@ numpy<2.0.0
 Pillow
 mysql-connector-python>=9.0.0
 openai>=1.0.0
+dashscope>=1.24.6
 # Ensure headless opencv is used
 opencv-python-headless>=4.11.0

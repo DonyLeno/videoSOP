@@ -67,6 +67,7 @@
         <option value="kimi-2.5" selected>GenieviewK2.5 (长文本/视觉增强)</option>
         <option value="gemini2.5flash">Genie 2.5 Flash</option>
         <option value="gemini3flash">Genie 3 Flash</option>
+        <option value="qwen3.5">Qwen 3.5</option>
       </select>
     </div>
     <div class="modal-form-group">
@@ -80,6 +81,30 @@
     <div class="modal-actions">
       <button class="btn-modal btn-cancel" id="btnUserCancel" data-i18n="cancel">取消</button>
       <button class="btn-modal btn-save" id="btnUserSave" data-i18n="save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="userHistoryModal" class="modal-overlay">
+  <div class="modal-content" style="max-width: 920px; width: 92%;">
+    <div class="modal-header" id="userHistoryTitle">检测历史</div>
+    <div style="max-height: 60vh; overflow: auto;">
+      <table class="user-table" id="userHistoryTable">
+        <thead>
+          <tr>
+            <th>检测时间</th>
+            <th>视频名</th>
+            <th>视频长度</th>
+            <th>使用模型</th>
+            <th>Token 消耗</th>
+          </tr>
+        </thead>
+        <tbody id="userHistoryBody"></tbody>
+      </table>
+      <div id="userHistoryEmpty" style="color: var(--muted); font-size: 13px; padding: 12px 0; display: none;">暂无检测记录</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-modal btn-cancel" id="btnUserHistoryClose">关闭</button>
     </div>
   </div>
 </div>

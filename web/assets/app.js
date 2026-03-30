@@ -190,6 +190,7 @@ const I18N = {
     request_params_log: '请求参数: {params}\n',
     start_failed: '启动失败: {error}',
     detect_progress: '正在检测: {current} / {total} 帧 ({pct}%)',
+    detect_progress_request: '正在请求模型: {current} / {total} 次 ({pct}%)',
     task_complete: '[{time}] 任务完成!\nJSON: {json}\nVideo: {video}\n',
     jump_to_review: '正在跳转到结果查看页...',
     process_failed_check_log: '处理失败，请查看日志',
@@ -397,6 +398,7 @@ const I18N = {
     request_params_log: 'Request params: {params}\n',
     start_failed: 'Start failed: {error}',
     detect_progress: 'Detecting: {current} / {total} frames ({pct}%)',
+    detect_progress_request: 'Model request progress: {current} / {total} ({pct}%)',
     task_complete: '[{time}] Task completed!\nJSON: {json}\nVideo: {video}\n',
     jump_to_review: 'Jumping to results view...',
     process_failed_check_log: 'Process failed. Check logs.',
@@ -608,13 +610,16 @@ function updateAdminUI() {
 async function authFetch(url, options = {}) {
   const opts = { ...options };
   opts.headers = { ...(opts.headers || {}) };
-  const token = getToken();
-  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+  const tokenAtRequest = getToken();
+  if (tokenAtRequest) opts.headers['Authorization'] = 'Bearer ' + tokenAtRequest;
   if (!opts.headers['X-UI-Lang']) opts.headers['X-UI-Lang'] = currentLang || 'zh';
   const res = await fetch(url, opts);
   if (res.status === 401) {
-    setToken('');
-    setLoginActive(true);
+    const tokenNow = getToken();
+    if (tokenAtRequest && tokenNow && tokenNow === tokenAtRequest) {
+      setToken('');
+      setLoginActive(true);
+    }
   }
   return res;
 }
@@ -647,7 +652,15 @@ async function refreshMe() {
 
       const detectModel = document.getElementById('detectModel');
       if (detectModel) {
-        detectModel.value = currentUser.model || 'kimi-2.5';
+        const preferredModel = (currentUser.model || 'kimi-2.5').trim();
+        const hasOption = Array.from(detectModel.options || []).some((opt) => opt.value === preferredModel);
+        if (!hasOption && preferredModel) {
+          const dynamicOption = document.createElement('option');
+          dynamicOption.value = preferredModel;
+          dynamicOption.textContent = preferredModel;
+          detectModel.appendChild(dynamicOption);
+        }
+        detectModel.value = preferredModel || 'kimi-2.5';
       }
 
       setLoginActive(false);
@@ -962,15 +975,94 @@ async function loadUserList() {
         <td><span class="${statusClass}">${formatStatus(u.status)}</span></td>
         <td>${formatTime(u.created_at)}</td>
         <td>${formatBytes(u.data_usage)}</td>
-        <td><button class="btn btn-small" data-action="edit-user" data-username="${u.username}">${t(
-          'edit'
-        )}</button></td>
+        <td>
+          <button class="btn btn-small" data-action="edit-user" data-username="${u.username}">${t(
+            'edit'
+          )}</button>
+          <button class="btn btn-small" data-action="view-history" data-username="${u.username}">检测历史</button>
+        </td>
       `;
       body.appendChild(tr);
     });
   } catch (e) {
     notify(t('user_list_load_failed', { error: e.message }));
   }
+}
+
+function getBaseName(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const parts = text.split('/');
+  return parts[parts.length - 1] || text;
+}
+
+function formatTokenTotal(item) {
+  if (!item) return '-';
+  const total = Number(item.token_total);
+  if (Number.isFinite(total) && total > 0) return String(Math.round(total));
+  const parts = [item.token_input, item.token_output, item.token_thinking]
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v) && v > 0);
+  if (!parts.length) return '-';
+  return String(Math.round(parts.reduce((a, b) => a + b, 0)));
+}
+
+function renderUserHistory(items) {
+  const body = document.getElementById('userHistoryBody');
+  const empty = document.getElementById('userHistoryEmpty');
+  if (!body || !empty) return;
+  body.innerHTML = '';
+  empty.style.display = 'none';
+  if (!items || !items.length) {
+    empty.style.display = 'block';
+    return;
+  }
+  items.forEach((item) => {
+    const tr = document.createElement('tr');
+    const name =
+      item.video_name ||
+      getBaseName(item.video_path) ||
+      getBaseName(item.result_path) ||
+      '-';
+    const duration = formatSecondsShort(item.video_seconds);
+    tr.innerHTML = `
+      <td>${formatTime(item.created_at)}</td>
+      <td>${name}</td>
+      <td>${duration}</td>
+      <td>${formatModel(item.model)}</td>
+      <td>${formatTokenTotal(item)}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+async function openUserHistoryModal(username) {
+  const modal = document.getElementById('userHistoryModal');
+  const title = document.getElementById('userHistoryTitle');
+  const body = document.getElementById('userHistoryBody');
+  const empty = document.getElementById('userHistoryEmpty');
+  if (!modal || !body || !empty) return;
+  if (title) title.textContent = username ? `检测历史 - ${username}` : '检测历史';
+  body.innerHTML = `<tr><td colspan="5">加载中...</td></tr>`;
+  empty.style.display = 'none';
+  modal.classList.add('open');
+  try {
+    const res = await authFetch(`/api/user_history?username=${encodeURIComponent(username || '')}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data && data.error ? data.error : t('load_failed'));
+    }
+    renderUserHistory(data.items || []);
+  } catch (e) {
+    body.innerHTML = '';
+    empty.style.display = 'block';
+    notify(t('load_failed') + ': ' + (e.message || ''));
+  }
+}
+
+function closeUserHistoryModal() {
+  const modal = document.getElementById('userHistoryModal');
+  if (modal) modal.classList.remove('open');
 }
 
 function openUserModal(mode, user) {
@@ -1036,23 +1128,36 @@ function setupUserManagement() {
   const btnRefresh = document.getElementById('btnRefreshUsers');
   const btnCancel = document.getElementById('btnUserCancel');
   const btnSave = document.getElementById('btnUserSave');
+  const btnHistoryClose = document.getElementById('btnUserHistoryClose');
   const table = document.getElementById('userTable');
   if (btnCreate) btnCreate.onclick = () => openUserModal('create');
   if (btnRefresh) btnRefresh.onclick = () => loadUserList();
   if (btnCancel) btnCancel.onclick = () => closeUserModal();
+  if (btnHistoryClose) btnHistoryClose.onclick = () => closeUserHistoryModal();
   if (table) {
     table.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-action="edit-user"]');
-      if (!btn) return;
-      const username = btn.getAttribute('data-username');
-      const user = userCache[username] || null;
-      if (user) openUserModal('edit', user);
+      const btnEdit = e.target.closest('[data-action="edit-user"]');
+      const btnHistory = e.target.closest('[data-action="view-history"]');
+      if (!btnEdit && !btnHistory) return;
+      const username = (btnEdit || btnHistory).getAttribute('data-username');
+      if (btnEdit) {
+        const user = userCache[username] || null;
+        if (user) openUserModal('edit', user);
+        return;
+      }
+      openUserHistoryModal(username);
     });
   }
   const modal = document.getElementById('userModal');
   if (modal) {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) closeUserModal();
+    });
+  }
+  const historyModal = document.getElementById('userHistoryModal');
+  if (historyModal) {
+    historyModal.addEventListener('click', (e) => {
+      if (e.target === historyModal) closeUserHistoryModal();
     });
   }
   bindEnterToButton(modal, btnSave);
@@ -1453,7 +1558,14 @@ function setupDetectionUI() {
   if (btnStartDetect) {
     btnStartDetect.addEventListener('click', async () => {
       const videoPath = document.getElementById('detectVideoSelect')?.value;
-      const model = document.getElementById('detectModel')?.value;
+      const modelSelect = document.getElementById('detectModel');
+      let model = modelSelect?.value || '';
+      if (!model && currentUser && typeof currentUser.model === 'string') {
+        model = currentUser.model.trim();
+      }
+      if (!model) {
+        model = 'kimi-2.5';
+      }
       const fpsRaw = parseFloat(document.getElementById('detectFps')?.value);
       const fps = Number.isFinite(fpsRaw) && fpsRaw > 0 ? fpsRaw : 3.0;
       const log = document.getElementById('detectLog');
@@ -1511,10 +1623,13 @@ function setupDetectionUI() {
           throw new Error(err.details || err.error || t('unknown_error'));
         }
         const started = await res.json().catch(() => ({}));
+        if (started && typeof started.resolved_model === 'string' && started.resolved_model.trim()) {
+          model = started.resolved_model.trim();
+        }
         if (log) {
           appendLog(
             log,
-            `[INFO] UI Lang: ${uiLang}; Prompt: ${started.prompt_path || 'unknown'}\n`
+            `[INFO] UI Lang: ${uiLang}; Prompt: ${started.prompt_path || 'unknown'}; Resolved Model: ${model}\n`
           );
           log.scrollTop = log.scrollHeight;
         }
@@ -1593,7 +1708,8 @@ async function pollTaskStatus() {
         if (total > 0) {
           const pct = Math.min(100, Math.max(0, (current / total) * 100)).toFixed(1);
           pBar.style.width = pct + '%';
-          pText.textContent = t('detect_progress', { current, total, pct });
+          const progressKey = taskData.progress_unit === 'request' ? 'detect_progress_request' : 'detect_progress';
+          pText.textContent = t(progressKey, { current, total, pct });
         } else {
           pBar.style.width = '0%';
           pText.textContent = t('prepare_text');
@@ -3030,6 +3146,14 @@ function renderActionsTable(table, actions) {
   const seqColIndexRaw = headersRaw.findIndex((h) => /^(序号|编号|No\.?|Index)$/i.test(String(h || '').trim()));
   currentCycleSelection = computeCycleSelectionFromTable(headersRaw, rowsRaw, currentActions);
   let selectedCycle = currentCycleSelection ? String(currentCycleSelection.cycleKey || '') : '';
+  if (cycleColIndexRaw >= 0 && Array.isArray(rowsRaw) && rowsRaw.length) {
+    const hasNonNumericCycle = rowsRaw.some((row) => {
+      const cells = Array.isArray(row) ? row : [];
+      const rawCycle = String(cells[cycleColIndexRaw] ?? '').trim();
+      return rawCycle && !normSeq(rawCycle);
+    });
+    if (hasNonNumericCycle) selectedCycle = '';
+  }
 
   let headers = headersRaw;
   const rows = rowsRaw;

@@ -1,5 +1,9 @@
 # Version History
 
+## v2.4
+- **Date**: 2026-03-30
+- **Commit Message**: 增加 qwen 模型适配，修复 admin 登录 401 竞态问题，优化进度显示
+
 ## v2.3
 - **Date**: 2026-03-03
 - **Commit Message**: 英文模式下检测完成后自动调用新版翻译，输出完整英文结果

@@ -143,6 +143,25 @@ def _ensure_mysql() -> None:
         """
     )
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS detection_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(64) NOT NULL,
+            video_name VARCHAR(255),
+            video_path TEXT,
+            result_path TEXT,
+            model VARCHAR(64),
+            video_seconds DOUBLE,
+            token_input INT,
+            token_output INT,
+            token_thinking INT,
+            token_total INT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_detection_history_user_time (username, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """
+    )
+    cursor.execute(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME='users'",
         (MYSQL_DATABASE,),
     )
@@ -189,6 +208,24 @@ def _ensure_sqlite() -> None:
             data_usage INTEGER NOT NULL DEFAULT 0,
             api_key TEXT,
             model TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS detection_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            video_name TEXT,
+            video_path TEXT,
+            result_path TEXT,
+            model TEXT,
+            video_seconds REAL,
+            token_input INTEGER,
+            token_output INTEGER,
+            token_thinking INTEGER,
+            token_total INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
         """
     )
@@ -304,6 +341,199 @@ def get_user_me(username: str) -> Optional[Dict[str, object]]:
     if not row:
         return None
     return _row_to_user_dict(row)
+
+
+def _row_to_history_dict(row: Any) -> Dict[str, object]:
+    created_at = row["created_at"] if isinstance(row, sqlite3.Row) else row[11]
+    created_at_text = (
+        created_at.isoformat() if hasattr(created_at, "isoformat") else (str(created_at) if created_at else "")
+    )
+    return {
+        "id": row["id"] if isinstance(row, sqlite3.Row) else row[0],
+        "username": row["username"] if isinstance(row, sqlite3.Row) else row[1],
+        "video_name": row["video_name"] if isinstance(row, sqlite3.Row) else row[2],
+        "video_path": row["video_path"] if isinstance(row, sqlite3.Row) else row[3],
+        "result_path": row["result_path"] if isinstance(row, sqlite3.Row) else row[4],
+        "model": row["model"] if isinstance(row, sqlite3.Row) else row[5],
+        "video_seconds": row["video_seconds"] if isinstance(row, sqlite3.Row) else row[6],
+        "token_input": row["token_input"] if isinstance(row, sqlite3.Row) else row[7],
+        "token_output": row["token_output"] if isinstance(row, sqlite3.Row) else row[8],
+        "token_thinking": row["token_thinking"] if isinstance(row, sqlite3.Row) else row[9],
+        "token_total": row["token_total"] if isinstance(row, sqlite3.Row) else row[10],
+        "created_at": created_at_text,
+    }
+
+
+def add_detection_history(
+    username: str,
+    video_name: Optional[str],
+    video_path: Optional[str],
+    result_path: Optional[str],
+    model: Optional[str],
+    created_at: Optional[str],
+    video_seconds: Optional[float],
+    token_input: Optional[int],
+    token_output: Optional[int],
+    token_thinking: Optional[int],
+    token_total: Optional[int],
+) -> bool:
+    u = (username or "").strip()
+    if not u:
+        return False
+    if _DB_MODE == "sqlite" or (_DB_MODE == "auto" and not _mysql_available()):
+        conn = _get_sqlite_connection()
+        cur = conn.cursor()
+        if created_at:
+            cur.execute(
+                """
+                INSERT INTO detection_history
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    u,
+                    video_name,
+                    video_path,
+                    result_path,
+                    model,
+                    video_seconds,
+                    token_input,
+                    token_output,
+                    token_thinking,
+                    token_total,
+                    created_at,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO detection_history
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    u,
+                    video_name,
+                    video_path,
+                    result_path,
+                    model,
+                    video_seconds,
+                    token_input,
+                    token_output,
+                    token_thinking,
+                    token_total,
+                ),
+            )
+        conn.commit()
+        conn.close()
+        return True
+    try:
+        conn = get_db_connection(use_database=True)
+        cursor = conn.cursor()
+        if created_at:
+            cursor.execute(
+                """
+                INSERT INTO detection_history
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    u,
+                    video_name,
+                    video_path,
+                    result_path,
+                    model,
+                    video_seconds,
+                    token_input,
+                    token_output,
+                    token_thinking,
+                    token_total,
+                    created_at,
+                ),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO detection_history
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    u,
+                    video_name,
+                    video_path,
+                    result_path,
+                    model,
+                    video_seconds,
+                    token_input,
+                    token_output,
+                    token_thinking,
+                    token_total,
+                ),
+            )
+        cursor.close()
+        conn.close()
+        return True
+    except Exception:
+        if _DB_MODE == "auto":
+            return add_detection_history(
+                u,
+                video_name,
+                video_path,
+                result_path,
+                model,
+                created_at,
+                video_seconds,
+                token_input,
+                token_output,
+                token_thinking,
+                token_total,
+            )
+        raise
+
+
+def list_detection_history(username: str, limit: int = 200) -> List[Dict[str, object]]:
+    u = (username or "").strip()
+    if not u:
+        return []
+    lim = max(1, min(int(limit or 200), 500))
+    if _DB_MODE == "sqlite" or (_DB_MODE == "auto" and not _mysql_available()):
+        conn = _get_sqlite_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at
+            FROM detection_history
+            WHERE username=?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (u, lim),
+        )
+        rows = cur.fetchall() or []
+        conn.close()
+        return [_row_to_history_dict(r) for r in rows]
+    try:
+        conn = get_db_connection(use_database=True)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at
+            FROM detection_history
+            WHERE username=%s
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s
+            """,
+            (u, lim),
+        )
+        rows = cursor.fetchall() or []
+        cursor.close()
+        conn.close()
+        return [_row_to_history_dict(r) for r in rows]
+    except Exception:
+        if _DB_MODE == "auto":
+            return list_detection_history(u, lim)
+        raise
 
 
 def list_users() -> List[Dict[str, object]]:

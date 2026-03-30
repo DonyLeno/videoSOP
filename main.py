@@ -8,6 +8,7 @@ import re
 import time
 import base64
 import io
+import mimetypes
 from typing import Any, Dict, List, Optional, TypedDict, Tuple, Union, Callable
 
 import cv2  # type: ignore
@@ -19,6 +20,10 @@ try:
     import openai
 except ImportError:
     openai = None
+try:
+    import dashscope
+except ImportError:
+    dashscope = None
 
 
 def _truncate_text(value: Any, limit: int = 2000) -> str:
@@ -26,6 +31,31 @@ def _truncate_text(value: Any, limit: int = 2000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"...(truncated,len={len(text)})"
+
+
+def _dashscope_base_url() -> str:
+    base = os.getenv("DASHSCOPE_API_BASE") or os.getenv("QWEN_API_BASE") or ""
+    if base:
+        if "compatible-mode/v1" in base:
+            return base.replace("compatible-mode/v1", "api/v1")
+        return base
+    return "https://dashscope.aliyuncs.com/api/v1"
+
+
+def _dashscope_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if isinstance(item, dict) and "text" in item:
+                parts.append(str(item.get("text") or "").strip())
+            elif isinstance(item, str):
+                parts.append(item.strip())
+        return "\n".join([p for p in parts if p])
+    if isinstance(content, dict) and "text" in content:
+        return str(content.get("text") or "").strip()
+    return str(content or "")
 
 
 def _redact_headers(headers: Any) -> Dict[str, str]:
@@ -257,6 +287,9 @@ def _normalize_model_name(model: str) -> str:
         return "gemini-1.5-flash"
     if text == "gemini3flash":
         return "gemini-2.0-flash"
+    lowered = text.lower()
+    if lowered in ("qwen3.5", "qwen3.5-plus", "qwen-3.5", "qwen-3.5-plus"):
+        return "qwen3.5-plus"
     return text or model
 
 
@@ -527,8 +560,114 @@ def extract_frames(video_path: str, fps: float) -> List[Any]:
 
 def encode_image(image: PILImage.Image) -> str:
     buffered = io.BytesIO()
-    image.save(buffered, format="JPEG")
+    quality = _env_int("MOONSHOT_JPEG_QUALITY", 72)
+    if quality < 30:
+        quality = 30
+    if quality > 95:
+        quality = 95
+    max_edge = _env_int("MOONSHOT_IMAGE_MAX_EDGE", 960)
+    img = image
+    try:
+        w, h = img.size
+        edge = max(int(w), int(h))
+        if max_edge > 0 and edge > max_edge:
+            scale = float(max_edge) / float(edge)
+            new_w = max(1, int(round(float(w) * scale)))
+            new_h = max(1, int(round(float(h) * scale)))
+            img = img.resize((new_w, new_h))
+    except Exception:
+        img = image
+    img.save(buffered, format="JPEG", quality=quality, optimize=True)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
+def encode_video_as_data_url(video_path: str) -> Tuple[str, str, int]:
+    mime_type, _ = mimetypes.guess_type(video_path)
+    if not mime_type:
+        mime_type = "video/mp4"
+    with open(video_path, "rb") as f:
+        data = f.read()
+    encoded = base64.b64encode(data).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded}", mime_type, len(data)
+
+
+def _compress_video_for_limit(video_path: str, max_bytes: int) -> Optional[str]:
+    try:
+        os.makedirs("result", exist_ok=True)
+    except Exception:
+        return None
+    try:
+        original_size = os.path.getsize(video_path)
+    except Exception:
+        return None
+    if original_size <= max_bytes:
+        return video_path
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    if fps <= 0:
+        fps = 15.0
+    if width <= 0 or height <= 0:
+        cap.release()
+        return None
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    temp_path = os.path.join("result", f"{base}_qwen_tmp.mp4")
+    target_scale = (max_bytes / float(original_size)) ** 0.5
+    target_scale = max(0.2, min(1.0, target_scale))
+    for attempt in range(3):
+        scale = max(0.2, target_scale * (0.7 ** attempt))
+        new_w = max(320, int(width * scale))
+        new_h = max(180, int(height * scale))
+        new_w = int(new_w // 2 * 2)
+        new_h = int(new_h // 2 * 2)
+        out_fps = min(fps, 8.0 if attempt == 0 else 6.0)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(temp_path, fourcc, out_fps, (new_w, new_h))
+        if not writer.isOpened():
+            cap.release()
+            return None
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if frame.shape[1] != new_w or frame.shape[0] != new_h:
+                frame = cv2.resize(frame, (new_w, new_h))
+            writer.write(frame)
+        writer.release()
+        try:
+            if os.path.getsize(temp_path) <= max_bytes:
+                cap.release()
+                return temp_path
+        except Exception:
+            pass
+    cap.release()
+    return temp_path
+
+
+def _prepare_video_for_qwen(video_path: str, max_bytes: int) -> Tuple[str, str, int, Optional[str]]:
+    try:
+        original_size = os.path.getsize(video_path)
+    except Exception:
+        original_size = -1
+    if original_size > 0 and original_size <= max_bytes:
+        mime_type, _ = mimetypes.guess_type(video_path)
+        if not mime_type:
+            mime_type = "video/mp4"
+        return video_path, mime_type, original_size, None
+    compressed_path = _compress_video_for_limit(video_path, max_bytes)
+    if not compressed_path:
+        raise RuntimeError("video_too_large_for_data_uri")
+    try:
+        compressed_size = os.path.getsize(compressed_path)
+    except Exception:
+        compressed_size = -1
+    if compressed_size > max_bytes or compressed_size <= 0:
+        raise RuntimeError("video_too_large_for_data_uri")
+    return compressed_path, "video/mp4", compressed_size, compressed_path
 
 
 def _iter_image_files(root: str) -> List[str]:
@@ -1050,48 +1189,111 @@ def analyze_video_openai(
         all_actions: List[DetectedAction] = []
         video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
 
-        messages_content: List[Dict[str, Any]] = [{"type": "text", "text": prompt_text}]
-        for ts, img, _ in frames:
-            messages_content.append({"type": "text", "text": f"Timestamp: {ts}"})
-            b64 = encode_image(img)
-            messages_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+        max_frames_per_request = _env_int("MOONSHOT_MAX_FRAMES_PER_REQUEST", 90)
+        if max_frames_per_request < 1:
+            max_frames_per_request = 1
+        min_frames_per_request = _env_int("MOONSHOT_MIN_FRAMES_PER_REQUEST", 20)
+        if min_frames_per_request < 1:
+            min_frames_per_request = 1
+        if min_frames_per_request > max_frames_per_request:
+            min_frames_per_request = max_frames_per_request
+
+        ranges: List[Tuple[int, int]] = []
+        for i in range(0, len(frames), max_frames_per_request):
+            ranges.append((i, min(i + max_frames_per_request, len(frames))))
 
         if progress_callback:
             progress_callback(0, len(frames))
 
-        print(
-            json.dumps(
-                {
-                    "event": "moonshot.chat_completions.request",
-                    "model": used_model,
-                    "requested_model": model,
-                    "frame_count": len(frames),
-                },
-                ensure_ascii=False,
-            ),
-            flush=True,
-        )
+        all_contents: List[str] = []
+        processed_frames = 0
+        batch_counter = 0
 
-        try:
-            response = client.chat.completions.create(
-                model=used_model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": messages_content},
-                ],
-                temperature=1,
-                timeout=300.0,
-            )
-            content = response.choices[0].message.content or "{}"
+        while ranges:
+            start_idx, end_idx = ranges.pop(0)
+            batch_frames = frames[start_idx:end_idx]
+            if not batch_frames:
+                continue
+            batch_counter += 1
+            batch_prompt = prompt_text
+            if len(frames) > max_frames_per_request:
+                batch_prompt = (
+                    f"{prompt_text}\n\n"
+                    f"本次仅分析该批次帧，批次帧序号范围：{start_idx + 1}-{end_idx}。"
+                    "请严格基于当前输入帧输出结果。"
+                )
+            messages_content: List[Dict[str, Any]] = [{"type": "text", "text": batch_prompt}]
+            for ts, img, _ in batch_frames:
+                messages_content.append({"type": "text", "text": f"Timestamp: {ts}"})
+                b64 = encode_image(img)
+                messages_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
 
             print(
                 json.dumps(
                     {
-                        "event": "moonshot.chat_completions.content",
+                        "event": "moonshot.chat_completions.request.batch",
                         "model": used_model,
                         "requested_model": model,
-                        "frame_count": len(frames),
-                        "content_preview": _truncate_text(content, 2000),
+                        "batch_index": batch_counter,
+                        "batch_start": start_idx,
+                        "batch_end": end_idx,
+                        "batch_frame_count": len(batch_frames),
+                        "total_frame_count": len(frames),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            try:
+                response = client.chat.completions.create(
+                    model=used_model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": messages_content},
+                    ],
+                    temperature=1,
+                    timeout=300.0,
+                )
+            except Exception as e:
+                current_size = end_idx - start_idx
+                if current_size > min_frames_per_request:
+                    mid = start_idx + (current_size // 2)
+                    if mid > start_idx and mid < end_idx:
+                        ranges = [(start_idx, mid), (mid, end_idx)] + ranges
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "moonshot.chat_completions.batch.split",
+                                    "batch_start": start_idx,
+                                    "batch_end": end_idx,
+                                    "retry_left_start": start_idx,
+                                    "retry_left_end": mid,
+                                    "retry_right_start": mid,
+                                    "retry_right_end": end_idx,
+                                    "reason": _truncate_text(str(e), 500),
+                                },
+                                ensure_ascii=False,
+                            ),
+                            flush=True,
+                        )
+                        continue
+                print(f"[ERROR] Request failed: {e}", flush=True)
+                raise
+
+            content = response.choices[0].message.content or "{}"
+            all_contents.append(content)
+
+            print(
+                json.dumps(
+                    {
+                        "event": "moonshot.chat_completions.content.batch",
+                        "model": used_model,
+                        "requested_model": model,
+                        "batch_index": batch_counter,
+                        "batch_start": start_idx,
+                        "batch_end": end_idx,
+                        "batch_frame_count": len(batch_frames),
+                        "content_preview": _truncate_text(content, 1200),
                     },
                     ensure_ascii=False,
                 ),
@@ -1125,12 +1327,16 @@ def analyze_video_openai(
                     model_output = {"actions": data, "stats": compute_stats(parse_actions(data)), "advice": []}
                 all_actions.extend(parse_actions(model_output.get("actions")))
 
-            final_md_path = os.path.join("result", f"{video_name}.md")
-            with open(final_md_path, "w", encoding="utf-8") as f:
-                f.write(content)
-        except Exception as e:
-            print(f"[ERROR] Request failed: {e}", flush=True)
-            raise
+            processed_frames += len(batch_frames)
+            if progress_callback:
+                progress_callback(processed_frames, len(frames))
+
+        if not all_contents:
+            raise RuntimeError("moonshot_empty_response")
+        content = all_contents[0] if len(all_contents) == 1 else "\n\n".join(all_contents)
+        final_md_path = os.path.join("result", f"{video_name}.md")
+        with open(final_md_path, "w", encoding="utf-8") as f:
+            f.write(content)
 
         if progress_callback:
             progress_callback(len(frames), len(frames))
@@ -1246,6 +1452,135 @@ def analyze_video_openai(
             pass
 
 
+def analyze_video_qwen(
+    api_key: str,
+    video_path: str,
+    model: str,
+    prompt_override: Optional[str] = None,
+    output_stem: Optional[str] = None,
+) -> Tuple[Dict[str, Any], List[DetectedAction]]:
+    if not dashscope:
+        raise ImportError("dashscope module not installed. Please install 'dashscope'.")
+
+    prompt_text = (prompt_override or "").strip() or build_prompt(use_frames=False)
+    used_model = _normalize_model_name(model)
+    base_url = _dashscope_base_url()
+    dashscope.base_http_api_url = base_url
+    abs_video_path = os.path.abspath(video_path)
+    file_uri = f"file://{abs_video_path}"
+    try:
+        video_size = os.path.getsize(video_path)
+    except Exception:
+        video_size = 0
+
+    print(
+        json.dumps(
+            {
+                "event": "qwen.chat_completions.request",
+                "model": used_model,
+                "requested_model": model,
+                "base_url": base_url,
+                "file_uri": file_uri,
+                "video_bytes": video_size,
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    try:
+        response = dashscope.MultiModalConversation.call(
+            api_key=api_key,
+            model=used_model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"video": file_uri}, {"text": prompt_text}],
+                }
+            ],
+        )
+        content = ""
+        try:
+            content = _dashscope_content_to_text(response.output.choices[0].message.content)
+        except Exception:
+            content = _dashscope_content_to_text(getattr(response, "output", None))
+        print(
+            json.dumps(
+                {
+                    "event": "qwen.chat_completions.content",
+                    "model": used_model,
+                    "requested_model": model,
+                    "content_preview": _truncate_text(content, 2000),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+    except Exception as e:
+        print(
+            json.dumps(
+                {
+                    "event": "qwen.chat_completions.error",
+                    "model": used_model,
+                    "error": _truncate_text(str(e), 2000),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+        raise RuntimeError(f"Qwen API request failed: {str(e)}")
+    video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
+    final_md_path = os.path.join("result", f"{video_name}.md")
+    with open(final_md_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    usage = getattr(response, "usage", None) if response is not None else None
+    prompt_tokens_total: Optional[int] = 0
+    completion_tokens_total: Optional[int] = 0
+    total_tokens_total: Optional[int] = 0
+    if usage:
+        if isinstance(usage, dict):
+            prompt_tokens_total = int(usage.get("input_tokens", 0) or 0)
+            completion_tokens_total = int(usage.get("output_tokens", 0) or 0)
+            total_tokens_total = int(usage.get("total_tokens", 0) or 0)
+        else:
+            prompt_tokens_total = int(getattr(usage, "input_tokens", 0) or 0)
+            completion_tokens_total = int(getattr(usage, "output_tokens", 0) or 0)
+            total_tokens_total = int(getattr(usage, "total_tokens", 0) or 0)
+        if not total_tokens_total:
+            total_tokens_total = int((prompt_tokens_total or 0) + (completion_tokens_total or 0))
+
+    actions: List[DetectedAction] = []
+    computed_stats = compute_stats([])
+    usage_dict = {
+        "prompt_token_count": prompt_tokens_total,
+        "response_token_count": completion_tokens_total,
+        "total_token_count": total_tokens_total,
+    }
+    model_output: ModelOutput = {
+        "raw_content": content,
+        "actions": actions,
+        "stats": computed_stats,
+        "advice": [],
+    }
+    result = {
+        "input": {"video_path": video_path},
+        "model": {"requested": model, "used": used_model},
+        "file": {"name": "video", "uri": file_uri, "mime_type": "video/mp4", "state": "processed"},
+        "prompt": prompt_text,
+        "token_usage": usage_dict,
+        "token_summary": {
+            "input_tokens": usage_dict.get("prompt_token_count"),
+            "output_tokens": usage_dict.get("response_token_count"),
+            "total_tokens": usage_dict.get("total_token_count"),
+        },
+        "model_output": model_output,
+        "computed_stats": computed_stats,
+        "actions": actions,
+        "created_at": time.time(),
+    }
+    return result, actions
+
+
 def analyze_video(
     api_key: str,
     video_path: str,
@@ -1256,6 +1591,14 @@ def analyze_video(
     output_stem: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[DetectedAction]]:
     normalized = _normalize_model_name(model)
+    if normalized.startswith("qwen3.5"):
+        return analyze_video_qwen(
+            api_key,
+            video_path,
+            model,
+            prompt_override=prompt_override,
+            output_stem=output_stem,
+        )
     if normalized.startswith("kimi") or normalized.startswith("moonshot"):
         return analyze_video_openai(
             api_key,
@@ -1409,7 +1752,13 @@ def write_result(path: str, payload: Dict[str, Any]) -> None:
 
 
 def _resolve_api_key(cli_api_key: Optional[str]) -> str:
-    api_key = cli_api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("MOONSHOT_API_KEY")
+    api_key = (
+        cli_api_key
+        or os.getenv("GOOGLE_API_KEY")
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("MOONSHOT_API_KEY")
+        or os.getenv("DASHSCOPE_API_KEY")
+    )
     if api_key:
         return str(api_key)
     api_key = getpass.getpass("API key (Gemini/Kimi): ").strip()
