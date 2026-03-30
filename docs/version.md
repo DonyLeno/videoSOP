@@ -1,5 +1,9 @@
 # Version History
 
+## v2.5
+- **Date**: 2026-03-30
+- **Commit Message**: 修复 Dockerfile 遗漏 dashscope 导致 Qwen 报错的问题
+
 ## v2.4
 - **Date**: 2026-03-30
 - **Commit Message**: 增加 qwen 模型适配，修复 admin 登录 401 竞态问题，优化进度显示
