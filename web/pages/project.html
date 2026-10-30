@@ -1,0 +1,215 @@
+<div class="topbar project-topbar">
+  <div class="topbar-left">
+    <button class="menu-button" type="button" data-menu-button>☰</button>
+    <button class="project-back" type="button" onclick="openProjectsPage()" data-i18n="project_back">项目中心</button>
+    <span class="project-crumb-sep">/</span>
+    <div class="page-title" id="projectTitle" data-i18n="project_loading">加载中...</div>
+    <span id="projectLineCrumb" class="project-line-crumb" style="display:none;"></span>
+    <span id="projectStatusBadge" class="org-badge" style="display:none;"></span>
+  </div>
+  <div class="topbar-right">
+    <select id="projectLineSelect" class="form-control project-line-select">
+      <option value="" data-i18n="project_all_lines">全部产线</option>
+    </select>
+    <button class="btn" id="btnRefreshProject" data-i18n="refresh">刷新</button>
+    <button class="btn" id="btnProjectSettings" style="display:none;" data-i18n="project_settings">项目设置</button>
+  </div>
+</div>
+
+<div class="project-tabs" id="projectTabs">
+  <button class="project-tab active" type="button" data-project-tab="overview" onclick="switchProjectTab('overview')" data-i18n="project_tab_overview">项目概览</button>
+  <button class="project-tab" type="button" data-project-tab="lines" onclick="switchProjectTab('lines')" data-i18n="project_tab_lines">产线</button>
+  <button class="project-tab" type="button" data-project-tab="videos" onclick="switchProjectTab('videos')" data-i18n="project_tab_videos">视频库</button>
+  <button class="project-tab" type="button" data-project-tab="detection" onclick="switchProjectTab('detection')" data-i18n="project_tab_detection">检测任务</button>
+  <button class="project-tab" type="button" data-project-tab="results" onclick="switchProjectTab('results')" data-i18n="project_tab_results">结果查看</button>
+  <button class="project-tab" type="button" data-project-tab="settings" id="projectSettingsTab" onclick="switchProjectTab('settings')" data-i18n="project_tab_settings">项目设置</button>
+</div>
+
+<section id="project-panel-overview" class="project-panel active">
+  <div class="project-stats">
+    <div class="stat-card">
+      <div class="stat-title" data-i18n="project_stat_videos">视频</div>
+      <div class="stat-value" id="projectStatVideos">-</div>
+      <div class="stat-hint" data-i18n="project_stat_videos_hint">已上传到本项目</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-title" data-i18n="project_stat_tasks">检测任务</div>
+      <div class="stat-value" id="projectStatTasks">-</div>
+      <div class="stat-hint" id="projectStatRunning"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-title" data-i18n="project_stat_results">分析结果</div>
+      <div class="stat-value" id="projectStatResults">-</div>
+      <div class="stat-hint" data-i18n="project_stat_results_hint">可回看与修订</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-title" data-i18n="project_stat_lines">产线</div>
+      <div class="stat-value" id="projectStatLines">-</div>
+      <div class="stat-hint" data-i18n="project_stat_lines_hint">独立 SOP 配置</div>
+    </div>
+  </div>
+
+  <div class="project-overview-grid">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="user-toolbar">
+          <span data-i18n="project_recent_videos">最近视频</span>
+          <button class="btn btn-small" type="button" onclick="switchProjectTab('videos')" data-i18n="project_view_all">查看全部</button>
+        </div>
+      </div>
+      <div class="panel-body" style="overflow-x:auto;">
+        <table class="user-table project-table">
+          <thead>
+            <tr>
+              <th data-i18n="project_video_name">视频</th>
+              <th data-i18n="project_video_line">产线</th>
+              <th data-i18n="project_video_created">上传时间</th>
+              <th data-i18n="project_actions">操作</th>
+            </tr>
+          </thead>
+          <tbody id="projectRecentVideos"></tbody>
+        </table>
+        <div id="projectRecentVideosEmpty" class="empty-inline" style="display:none;" data-i18n="project_no_videos">暂无视频</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="user-toolbar">
+          <span data-i18n="project_recent_results">最近结果</span>
+          <button class="btn btn-small" type="button" onclick="switchProjectTab('results')" data-i18n="project_view_all">查看全部</button>
+        </div>
+      </div>
+      <div class="panel-body" style="overflow-x:auto;">
+        <table class="user-table project-table">
+          <thead>
+            <tr>
+              <th data-i18n="project_result_file">结果</th>
+              <th data-i18n="project_result_source">来源视频</th>
+              <th data-i18n="project_result_created">生成时间</th>
+              <th data-i18n="project_actions">操作</th>
+            </tr>
+          </thead>
+          <tbody id="projectRecentResults"></tbody>
+        </table>
+        <div id="projectRecentResultsEmpty" class="empty-inline" style="display:none;" data-i18n="project_no_results">暂无结果</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel project-running-panel" id="projectRunningPanel" style="display:none;">
+    <div class="panel-header" data-i18n="project_running_title">进行中的检测</div>
+    <div class="panel-body" id="projectRunningBody"></div>
+  </div>
+</section>
+
+<section id="project-panel-lines" class="project-panel">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="user-toolbar">
+        <span data-i18n="project_tab_lines">产线</span>
+        <span class="pill" id="projectLineCount">0</span>
+      </div>
+      <div class="user-toolbar">
+        <button class="btn btn-small" type="button" id="btnExitLine" style="display:none;" data-i18n="project_line_exit">返回全部产线</button>
+        <button class="btn" type="button" id="btnCreateProjectLine" data-i18n="line_create">新建产线</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="stationPlanPanel" class="station-plan-panel" style="display:none;">
+        <div class="station-plan-header">
+          <div class="user-toolbar">
+            <span data-i18n="station_plan_title">工位示意图（2.5D）</span>
+            <span class="pill" id="stationPlanCount">0</span>
+          </div>
+          <div class="user-toolbar">
+            <button class="btn btn-small" type="button" id="btnAddStation" data-i18n="station_add">添加工位</button>
+            <button class="btn btn-small btn-danger" type="button" id="btnDeleteStation" disabled data-i18n="station_delete">删除选中工位</button>
+          </div>
+        </div>
+        <div class="station-plan-hint" data-i18n="station_plan_hint">拖动工位可调整布局，点击工位可选中；上传视频会绑定到所选工位。</div>
+        <div class="station-plan-canvas">
+          <svg id="stationPlanSvg" viewBox="0 0 820 520" preserveAspectRatio="xMidYMid meet" role="img" data-i18n-alt="station_plan_title"></svg>
+          <div id="stationPlanEmpty" class="station-plan-empty" data-i18n="station_plan_empty">该产线暂无工位，点击「添加工位」开始布置。</div>
+        </div>
+      </div>
+      <div class="line-grid" id="projectLinesGrid"></div>
+      <div id="projectLinesEmpty" class="empty-state compact" style="display:none;">
+        <div class="empty-state-title" data-i18n="project_no_lines">暂无产线</div>
+        <div class="empty-state-desc" data-i18n="project_no_lines_desc">新建产线后，视频、检测任务与结果会按产线归档。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="project-panel-videos" class="project-panel">
+  <div class="panel project-upload-panel">
+    <div class="panel-header" data-i18n="project_upload_title">上传视频</div>
+    <div class="panel-body">
+      <div class="project-upload-zone">
+        <div class="project-upload-text">
+          <div class="project-upload-main" data-i18n="project_upload_desc">上传后自动完成预处理，视频归属当前项目与所选产线。</div>
+          <div class="project-upload-file" id="uploadFileName" data-i18n="file_not_selected">未选择文件</div>
+        </div>
+        <div class="project-upload-station" id="uploadStationWrapper" style="display:none;">
+          <label class="form-label" for="uploadStationSelect" data-i18n="station_select_label">绑定工位</label>
+          <select id="uploadStationSelect" class="form-control"></select>
+        </div>
+        <input type="file" id="uploadInput" accept="video/*" style="display: none;">
+        <button id="btnChooseFile" class="btn" type="button" data-i18n="choose_file">选择文件</button>
+        <button id="btnUpload" class="btn" type="button" data-i18n="upload">上传</button>
+      </div>
+      <div id="uploadProgressWrapper" class="project-upload-progress" style="display:none;">
+        <div class="project-progress-label" data-i18n="upload_video_label">视频上传</div>
+        <div class="project-progress-track"><div id="uploadVideoProgressBar" class="project-progress-bar"></div></div>
+        <div id="uploadVideoProgressText" class="project-progress-text"></div>
+        <div class="project-progress-label" data-i18n="preprocess_video_label">视频预处理</div>
+        <div class="project-progress-track"><div id="frameProgressBar" class="project-progress-bar accent2"></div></div>
+        <div id="frameProgressText" class="project-progress-text"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="user-toolbar">
+        <span data-i18n="project_video_library">视频库</span>
+        <span class="pill" id="projectVideoCount">0</span>
+      </div>
+      <input type="text" id="projectVideoSearch" class="form-control project-search" data-i18n-placeholder="project_search_ph" placeholder="搜索视频名称">
+    </div>
+    <div class="panel-body" style="overflow-x:auto;">
+      <table class="user-table project-table">
+        <thead>
+          <tr>
+            <th data-i18n="project_video_name">视频</th>
+            <th data-i18n="project_video_line">产线</th>
+            <th data-i18n="station_label">工位</th>
+            <th data-i18n="project_video_duration">时长</th>
+            <th data-i18n="project_video_uploader">上传者</th>
+            <th data-i18n="project_video_created">上传时间</th>
+            <th data-i18n="project_video_status">状态</th>
+            <th data-i18n="project_actions">操作</th>
+          </tr>
+        </thead>
+        <tbody id="projectVideoBody"></tbody>
+      </table>
+      <div id="projectVideoEmpty" class="empty-state compact" style="display:none;">
+        <div class="empty-state-title" data-i18n="project_no_videos">暂无视频</div>
+        <div class="empty-state-desc" data-i18n="project_no_videos_desc">上传第一个视频后即可开始检测。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="project-panel-detection" class="project-panel">
+  <div data-include="/pages/detection.html"></div>
+</section>
+
+<section id="project-panel-results" class="project-panel">
+  <div data-include="/pages/review.html"></div>
+</section>
+
+<section id="project-panel-settings" class="project-panel">
+  <div data-include="/pages/org.html"></div>
+</section>

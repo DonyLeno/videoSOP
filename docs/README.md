@@ -1,4 +1,4 @@
-# Genieview v2.1 中国版
+# Geniview v2.1 中国版
 
 一个本地 Web 界面 + Python 服务的“视频动作分析/标注”工具，集成了 Kimi (Moonshot AI) 大模型进行视频内容分析。
 

@@ -1,5 +1,5 @@
 function brandReplace(text) {
-  return String(text).replace(/gemini/gi, 'genieview');
+  return String(text).replace(/gemini/gi, 'Geniview');
 }
 
 const I18N = {
@@ -44,6 +44,28 @@ const I18N = {
     save: '保存',
     edit_index: '序号',
     action_index: '序号',
+    action_thumb: '帧',
+    export_csv: '导出 CSV',
+    revision_history: '修订历史',
+    revision_none: '暂无修订记录',
+    revision_restore: '恢复',
+    revision_restore_confirm: '确定回滚到该版本？当前内容会先自动存入修订历史。',
+    revision_restored: '已回滚到指定修订版本',
+    revision_load_failed: '修订历史加载失败: {error}',
+    no_result_selected: '请先选择结果文件',
+    vanva_title: '增值 / 非增值统计 (VA / NVA)',
+    vanva_va: '增值 (VA)',
+    vanva_nva: '非增值 (NVA)',
+    vanva_nnva: '必要非增值 (NNVA)',
+    vanva_unknown: '未标注',
+    vanva_total: '总时长',
+    vanva_actions_unit: '个动作',
+    vanva_empty: '当前结果无增值/非增值或时间数据',
+    revoke_sessions: '强制下线',
+    revoke_sessions_title: '吊销该用户全部登录会话，立即强制下线',
+    revoke_sessions_confirm: '确定强制下线用户「{username}」？其所有登录会话将立即失效。',
+    revoke_sessions_done: '已强制下线「{username}」，吊销会话 {count} 个',
+    revoke_sessions_failed: '强制下线失败: {error}',
     action_desc: '动作描述',
     therblig_type: '动素类型',
     is_process: '是否加工',
@@ -63,7 +85,7 @@ const I18N = {
     start_time_later_than_end_time: '开始时间不能晚于结束时间',
     estimated_duration: '预估耗时 (s)',
     auto_calculate: '自动计算',
-    notify_title: 'Genieview 通知',
+    notify_title: 'Geniview 通知',
     ok: '确定',
     detect_running_hint: '正在对视频进行检测分析，请稍等...',
     settings_title: '系统设置',
@@ -87,7 +109,7 @@ const I18N = {
     file_not_selected: '未选择文件',
     upload: '上传',
     detect_model_label: '模型',
-    detect_model_default: 'GenieviewK2.5 (长文本/视觉增强)',
+    detect_model_default: 'GeniviewK2.5 (长文本/视觉增强)',
     upload_video_label: '视频上传',
     preprocess_video_label: '视频预处理',
     estimate_cost: '预估费用',
@@ -146,11 +168,11 @@ const I18N = {
     calculator_title: '费用计算器',
     calculator_header: 'Token 费用预估',
     calculator_model: '模型选择',
-    calculator_model_default: 'GenieviewK 2.5 - 默认',
+    calculator_model_default: 'GeniviewK 2.5 - 默认',
     calculator_input_tokens: '输入 Token 数量',
     calculator_output_tokens: '输出 Token 数量',
     calculator_start: '开始计算',
-    calculator_formula_title: '计算公式 (GenieviewK 2.5):',
+    calculator_formula_title: '计算公式 (GeniviewK 2.5):',
     calculator_price_input: 'Input: ¥0.004 / 1k tokens',
     calculator_price_output: 'Output: ¥0.021 / 1k tokens',
     calculator_input_cost: '输入费用',
@@ -185,7 +207,7 @@ const I18N = {
     upload_failed: '上传失败: {error}',
     upload_error: '上传出错: {error}',
     select_video_first: '请先选择视频',
-    processing_detect: '正在处理中 (genieview 分析 + 视觉标注)...',
+    processing_detect: '正在处理中 (Geniview 分析 + 视觉标注)...',
     task_start_log: '[{time}] 开始任务...\n视频: {video}\n模型: {model}\nFPS: {fps}\n',
     request_params_log: '请求参数: {params}\n',
     start_failed: '启动失败: {error}',
@@ -206,7 +228,58 @@ const I18N = {
     save_failed_with_error: '保存失败: {error}',
     load_failed_with_status: '加载失败: {url} ({status})',
     page_load_failed: '页面加载失败: {error}',
-    reason: '原因'
+    reason: '原因',
+    // 阶段 2：组织层级
+    nav_org: '组织管理',
+    nav_short_org: '组',
+    scope_label: '作用域',
+    scope_loading: '加载中...',
+    scope_all_lines: '全部产线',
+    scope_no_project: '暂无项目',
+    org_title: '组织管理',
+    org_projects: '项目列表',
+    org_create_project: '新建项目',
+    org_no_projects: '暂无项目',
+    org_project_code: '项目编号',
+    org_project_name: '项目名称',
+    org_project_desc: '描述',
+    org_status: '状态',
+    status_archived: '归档',
+    org_my_role: '我的角色',
+    org_created_at: '创建时间',
+    org_actions: '操作',
+    org_manage_lines: '产线',
+    org_manage_members: '成员',
+    org_edit: '编辑',
+    org_lines: '产线列表',
+    org_create_line: '新建产线',
+    org_no_lines: '暂无产线',
+    org_line_code: '产线编号',
+    org_line_name: '产线名称',
+    org_process_desc: '工艺描述',
+    org_sop: '产线 SOP',
+    org_sop_content: 'SOP 内容（该产线分析时注入，优先于全局 SOP）',
+    org_sop_configured: '已配置',
+    org_sop_empty: '未配置',
+    org_members: '成员管理',
+    org_member_username: '用户名',
+    org_member_username_ph: '用户名',
+    org_member_role: '项目角色',
+    org_member_user_role: '系统角色',
+    org_no_members: '暂无成员',
+    org_add_member: '添加成员',
+    org_remove: '移除',
+    org_member_removed: '成员已移除',
+    role_owner: '负责人',
+    role_editor: '编辑者',
+    role_viewer: '观察者',
+    org_edit_project: '编辑项目',
+    org_edit_line: '编辑产线',
+    org_save_success: '保存成功',
+    org_sop_saved: 'SOP 已保存',
+    org_load_failed: '加载失败',
+    org_remove_member_confirm: '确定将 {username} 移出该项目？',
+    org_lines_of: '产线'
   },
   en: {
     login_subtitle: 'Video Action Analysis & Annotation Platform',
@@ -250,6 +323,28 @@ const I18N = {
     save: 'Save',
     edit_index: 'Index',
     action_index: 'Index',
+    action_thumb: 'Frame',
+    export_csv: 'Export CSV',
+    revision_history: 'Revisions',
+    revision_none: 'No revisions yet',
+    revision_restore: 'Restore',
+    revision_restore_confirm: 'Restore this version? The current content will be snapshotted first.',
+    revision_restored: 'Restored to the selected revision',
+    revision_load_failed: 'Failed to load revisions: {error}',
+    no_result_selected: 'Select a result file first',
+    vanva_title: 'VA / NVA Breakdown',
+    vanva_va: 'Value-added (VA)',
+    vanva_nva: 'Non-value-added (NVA)',
+    vanva_nnva: 'Necessary NVA (NNVA)',
+    vanva_unknown: 'Unlabeled',
+    vanva_total: 'Total',
+    vanva_actions_unit: 'actions',
+    vanva_empty: 'No VA/NVA or time data in this result',
+    revoke_sessions: 'Force Sign Out',
+    revoke_sessions_title: 'Revoke all login sessions of this user immediately',
+    revoke_sessions_confirm: 'Force sign out "{username}"? All their sessions will be revoked.',
+    revoke_sessions_done: '"{username}" signed out, {count} session(s) revoked',
+    revoke_sessions_failed: 'Force sign out failed: {error}',
     action_desc: 'Action Description',
     therblig_type: 'Therblig Type',
     is_process: 'Processing',
@@ -271,7 +366,7 @@ const I18N = {
     start_time_later_than_end_time: 'Start time cannot be later than end time',
     estimated_duration: 'Estimated Duration (s)',
     auto_calculate: 'Auto',
-    notify_title: 'Genieview Notice',
+    notify_title: 'Geniview Notice',
     ok: 'OK',
     detect_running_hint: 'Analyzing the video, please wait...',
     settings_title: 'System Settings',
@@ -295,7 +390,7 @@ const I18N = {
     file_not_selected: 'No file selected',
     upload: 'Upload',
     detect_model_label: 'Model',
-    detect_model_default: 'GenieviewK2.5 (Long Text / Vision Enhanced)',
+    detect_model_default: 'GeniviewK2.5 (Long Text / Vision Enhanced)',
     upload_video_label: 'Video Upload',
     preprocess_video_label: 'Video Preprocessing',
     estimate_cost: 'Estimate Cost',
@@ -354,11 +449,11 @@ const I18N = {
     calculator_title: 'Cost Calculator',
     calculator_header: 'Token Cost Estimate',
     calculator_model: 'Model',
-    calculator_model_default: 'GenieviewK 2.5 - Default',
+    calculator_model_default: 'GeniviewK 2.5 - Default',
     calculator_input_tokens: 'Input Tokens',
     calculator_output_tokens: 'Output Tokens',
     calculator_start: 'Calculate',
-    calculator_formula_title: 'Formula (GenieviewK 2.5):',
+    calculator_formula_title: 'Formula (GeniviewK 2.5):',
     calculator_price_input: 'Input: ¥0.004 / 1k tokens',
     calculator_price_output: 'Output: ¥0.021 / 1k tokens',
     calculator_input_cost: 'Input Cost',
@@ -393,7 +488,7 @@ const I18N = {
     upload_failed: 'Upload failed: {error}',
     upload_error: 'Upload error: {error}',
     select_video_first: 'Select a video first',
-    processing_detect: 'Processing (genieview analysis + visual labeling)...',
+    processing_detect: 'Processing (Geniview analysis + visual labeling)...',
     task_start_log: '[{time}] Task started...\nVideo: {video}\nModel: {model}\nFPS: {fps}\n',
     request_params_log: 'Request params: {params}\n',
     start_failed: 'Start failed: {error}',
@@ -414,7 +509,58 @@ const I18N = {
     save_failed_with_error: 'Save failed: {error}',
     load_failed_with_status: 'Load failed: {url} ({status})',
     page_load_failed: 'Page load failed: {error}',
-    reason: 'Reason'
+    reason: 'Reason',
+    // Phase 2: organization
+    nav_org: 'Organization',
+    nav_short_org: 'O',
+    scope_label: 'Scope',
+    scope_loading: 'Loading...',
+    scope_all_lines: 'All Lines',
+    scope_no_project: 'No Project',
+    org_title: 'Organization',
+    org_projects: 'Projects',
+    org_create_project: 'New Project',
+    org_no_projects: 'No projects yet',
+    org_project_code: 'Project Code',
+    org_project_name: 'Project Name',
+    org_project_desc: 'Description',
+    org_status: 'Status',
+    status_archived: 'Archived',
+    org_my_role: 'My Role',
+    org_created_at: 'Created At',
+    org_actions: 'Actions',
+    org_manage_lines: 'Lines',
+    org_manage_members: 'Members',
+    org_edit: 'Edit',
+    org_lines: 'Production Lines',
+    org_create_line: 'New Line',
+    org_no_lines: 'No lines yet',
+    org_line_code: 'Line Code',
+    org_line_name: 'Line Name',
+    org_process_desc: 'Process Description',
+    org_sop: 'Line SOP',
+    org_sop_content: 'SOP content (injected for this line, overrides global SOP)',
+    org_sop_configured: 'Configured',
+    org_sop_empty: 'Not set',
+    org_members: 'Members',
+    org_member_username: 'Username',
+    org_member_username_ph: 'Username',
+    org_member_role: 'Project Role',
+    org_member_user_role: 'System Role',
+    org_no_members: 'No members yet',
+    org_add_member: 'Add Member',
+    org_remove: 'Remove',
+    org_member_removed: 'Member removed',
+    role_owner: 'Owner',
+    role_editor: 'Editor',
+    role_viewer: 'Viewer',
+    org_edit_project: 'Edit Project',
+    org_edit_line: 'Edit Line',
+    org_save_success: 'Saved successfully',
+    org_sop_saved: 'SOP saved',
+    org_load_failed: 'Load failed',
+    org_remove_member_confirm: 'Remove {username} from this project?',
+    org_lines_of: 'Lines'
   }
 };
 
@@ -534,6 +680,13 @@ function setToken(token) {
   } catch {}
 }
 
+function withMediaToken(url) {
+  const token = getToken();
+  if (!token) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return url + sep + 'token=' + encodeURIComponent(token);
+}
+
 function setLoginActive(active) {
   document.body.classList.toggle('login-active', Boolean(active));
   if (active) {
@@ -587,20 +740,26 @@ function updateAdminUI() {
   const navUsers = document.getElementById('navUsers');
   const viewUsers = document.getElementById('view-users');
   const navCalc = document.getElementById('navCalculator');
+  const navOrg = document.getElementById('navOrg');
+  const viewOrg = document.getElementById('view-org');
   const estimateBtn = document.getElementById('btnEstimateCost');
   const costDiv = document.getElementById('costEstimate');
   const isAdmin = currentUser && currentUser.role === 'admin';
   if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
   if (viewUsers) viewUsers.style.display = isAdmin ? '' : 'none';
   if (navCalc) navCalc.style.display = isAdmin ? 'block' : 'none';
+  if (navOrg) navOrg.style.display = isAdmin ? 'block' : 'none';
+  if (viewOrg) viewOrg.style.display = isAdmin ? '' : 'none';
   if (estimateBtn) estimateBtn.style.display = 'none';
   if (!isAdmin && costDiv) costDiv.style.display = 'none';
   if (!isAdmin) {
     const view = document.getElementById('view-users');
     const viewCalc = document.getElementById('view-calculator');
+    const viewOrg2 = document.getElementById('view-org');
     if (
       (view && view.classList.contains('active')) ||
-      (viewCalc && viewCalc.classList.contains('active'))
+      (viewCalc && viewCalc.classList.contains('active')) ||
+      (viewOrg2 && viewOrg2.classList.contains('active'))
     ) {
       switchTab('review');
     }
@@ -633,6 +792,7 @@ async function refreshMe() {
     if (btnLogin) btnLogin.style.display = 'inline-block';
     if (btnLogout) btnLogout.style.display = 'none';
     currentUser = null;
+    clearScopeUI();
     updateSidebarUserText();
     updateAdminUI();
     setLoginActive(true);
@@ -649,6 +809,7 @@ async function refreshMe() {
       if (btnLogin) btnLogin.style.display = 'none';
       if (btnLogout) btnLogout.style.display = 'inline-block';
       updateAdminUI();
+      loadScopeProjects();
 
       const detectModel = document.getElementById('detectModel');
       if (detectModel) {
@@ -668,6 +829,7 @@ async function refreshMe() {
     }
   } catch {}
   currentUser = null;
+  clearScopeUI();
   updateSidebarUserText();
   if (btnLogin) btnLogin.style.display = 'inline-block';
   if (btnLogout) btnLogout.style.display = 'none';
@@ -717,6 +879,9 @@ function setupAuthUI() {
     };
   if (btnLogout)
     btnLogout.onclick = async () => {
+      try {
+        await authFetch('/api/logout', { method: 'POST' });
+      } catch {}
       setToken('');
       await refreshMe();
     };
@@ -859,6 +1024,7 @@ function switchTab(tabId) {
   if (tabId === 'detection') loadVideoList();
   if (tabId === 'review') loadResultList();
   if (tabId === 'users') loadUserList();
+  if (tabId === 'org') loadOrgData();
   if (tabId === 'settings') fetchVersion();
   setSidebarDrawerOpen(false);
 }
@@ -877,7 +1043,7 @@ function formatRole(role) {
 function formatModel(model) {
   if (!model) return '-';
   const map = {
-    'kimi-2.5': 'GenieviewK2.5'
+    'kimi-2.5': 'GeniviewK2.5'
   };
   return map[model] || model;
 }
@@ -903,7 +1069,7 @@ function maskApiKey(value) {
 function uploadVideoWithProgress(file, barEl, textEl) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload', true);
+    xhr.open('POST', '/api/upload' + scopeQueryString(), true);
     const token = getToken();
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
@@ -980,12 +1146,34 @@ async function loadUserList() {
             'edit'
           )}</button>
           <button class="btn btn-small" data-action="view-history" data-username="${u.username}">检测历史</button>
+          ${
+            u.username !== (currentUser && currentUser.username)
+              ? `<button class="btn btn-small btn-danger-outline" data-action="revoke-sessions" data-username="${u.username}" title="${t('revoke_sessions_title')}">${t('revoke_sessions')}</button>`
+              : ''
+          }
         </td>
       `;
       body.appendChild(tr);
     });
   } catch (e) {
     notify(t('user_list_load_failed', { error: e.message }));
+  }
+}
+
+async function revokeUserSessions(username) {
+  if (!username) return;
+  if (!window.confirm(t('revoke_sessions_confirm', { username }))) return;
+  try {
+    const res = await authFetch('/api/users/revoke_sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'status ' + res.status);
+    notify(t('revoke_sessions_done', { username, count: data.revoked ?? 0 }));
+  } catch (e) {
+    notify(t('revoke_sessions_failed', { error: e.message }));
   }
 }
 
@@ -1138,11 +1326,16 @@ function setupUserManagement() {
     table.addEventListener('click', (e) => {
       const btnEdit = e.target.closest('[data-action="edit-user"]');
       const btnHistory = e.target.closest('[data-action="view-history"]');
-      if (!btnEdit && !btnHistory) return;
-      const username = (btnEdit || btnHistory).getAttribute('data-username');
+      const btnRevoke = e.target.closest('[data-action="revoke-sessions"]');
+      if (!btnEdit && !btnHistory && !btnRevoke) return;
+      const username = (btnEdit || btnHistory || btnRevoke).getAttribute('data-username');
       if (btnEdit) {
         const user = userCache[username] || null;
         if (user) openUserModal('edit', user);
+        return;
+      }
+      if (btnRevoke) {
+        revokeUserSessions(username);
         return;
       }
       openUserHistoryModal(username);
@@ -1238,11 +1431,582 @@ function setupUserManagement() {
   }
 }
 
+// =====================================================================
+// 阶段 2：作用域（项目/产线）与组织管理
+// =====================================================================
+
+let currentScope = { project_id: null, line_id: null };
+let scopeProjectsCache = [];
+
+function scopeQueryString() {
+  const parts = [];
+  if (currentScope.project_id) parts.push('project_id=' + encodeURIComponent(currentScope.project_id));
+  if (currentScope.line_id) parts.push('line_id=' + encodeURIComponent(currentScope.line_id));
+  return parts.length ? '?' + parts.join('&') : '';
+}
+
+function persistScope() {
+  try {
+    localStorage.setItem('scope_project_id', currentScope.project_id ? String(currentScope.project_id) : '');
+    localStorage.setItem('scope_line_id', currentScope.line_id ? String(currentScope.line_id) : '');
+  } catch {}
+}
+
+function readStoredScope() {
+  try {
+    return {
+      project_id: parseInt(localStorage.getItem('scope_project_id') || '', 10) || null,
+      line_id: parseInt(localStorage.getItem('scope_line_id') || '', 10) || null
+    };
+  } catch {
+    return { project_id: null, line_id: null };
+  }
+}
+
+function clearScopeUI() {
+  currentScope = { project_id: null, line_id: null };
+  scopeProjectsCache = [];
+  const pSel = document.getElementById('scopeProjectSelect');
+  const lSel = document.getElementById('scopeLineSelect');
+  if (pSel) pSel.innerHTML = `<option value="">${t('scope_no_project')}</option>`;
+  if (lSel) lSel.innerHTML = `<option value="">${t('scope_all_lines')}</option>`;
+}
+
+async function loadScopeProjects() {
+  if (!currentUser) return;
+  try {
+    const res = await authFetch('/api/projects');
+    if (!res.ok) return;
+    const data = await res.json();
+    scopeProjectsCache = data.projects || [];
+    renderScopeProjectSelect();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function renderScopeProjectSelect() {
+  const sel = document.getElementById('scopeProjectSelect');
+  if (!sel) return;
+  if (!scopeProjectsCache.length) {
+    sel.innerHTML = `<option value="">${t('scope_no_project')}</option>`;
+    currentScope = { project_id: null, line_id: null };
+    renderScopeLineSelect([], null);
+    return;
+  }
+  const stored = readStoredScope();
+  sel.innerHTML = '';
+  scopeProjectsCache.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = String(p.id);
+    opt.textContent = `${p.name} (${p.code})`;
+    sel.appendChild(opt);
+  });
+  const storedOk = scopeProjectsCache.some((p) => String(p.id) === String(stored.project_id));
+  sel.value = storedOk ? String(stored.project_id) : String(scopeProjectsCache[0].id);
+  currentScope.project_id = parseInt(sel.value, 10) || null;
+  loadScopeLines(stored);
+}
+
+async function loadScopeLines(stored) {
+  const sel = document.getElementById('scopeLineSelect');
+  if (!sel || !currentScope.project_id) {
+    renderScopeLineSelect([], null);
+    return;
+  }
+  let lines = [];
+  try {
+    const res = await authFetch('/api/lines?project_id=' + encodeURIComponent(currentScope.project_id));
+    if (res.ok) {
+      const data = await res.json();
+      lines = data.lines || [];
+    }
+  } catch (e) {
+    console.error(e);
+  }
+  renderScopeLineSelect(lines, stored || readStoredScope());
+}
+
+function renderScopeLineSelect(lines, stored) {
+  const sel = document.getElementById('scopeLineSelect');
+  if (!sel) return;
+  sel.innerHTML = `<option value="">${t('scope_all_lines')}</option>`;
+  (lines || []).forEach((l) => {
+    const opt = document.createElement('option');
+    opt.value = String(l.id);
+    opt.textContent = `${l.name} (${l.code})`;
+    sel.appendChild(opt);
+  });
+  let lineId = null;
+  if (stored && stored.line_id && (lines || []).some((l) => String(l.id) === String(stored.line_id))) {
+    sel.value = String(stored.line_id);
+    lineId = parseInt(stored.line_id, 10) || null;
+  } else {
+    sel.value = '';
+  }
+  currentScope.line_id = lineId;
+  persistScope();
+  onScopeChanged();
+}
+
+function onScopeChanged() {
+  // 作用域变化后刷新当前页数据列表
+  loadVideoList();
+  loadResultList();
+}
+
+function setupScopeUI() {
+  const pSel = document.getElementById('scopeProjectSelect');
+  const lSel = document.getElementById('scopeLineSelect');
+  if (pSel) {
+    pSel.addEventListener('change', () => {
+      currentScope.project_id = parseInt(pSel.value, 10) || null;
+      currentScope.line_id = null;
+      persistScope();
+      loadScopeLines(null);
+    });
+  }
+  if (lSel) {
+    lSel.addEventListener('change', () => {
+      currentScope.line_id = parseInt(lSel.value, 10) || null;
+      persistScope();
+      onScopeChanged();
+    });
+  }
+}
+
+// ---------------------------------------------------------------------
+// 组织管理页（admin）
+// ---------------------------------------------------------------------
+
+let orgProjectsCache = [];
+let orgLinesCache = [];
+let orgActiveProjectId = null;
+
+function orgStatusBadge(status) {
+  const active = String(status || 'active') === 'active';
+  return `<span class="org-badge ${active ? 'active' : 'archived'}">${active ? t('status_active') : t('status_archived')}</span>`;
+}
+
+function orgRoleText(role) {
+  const map = { owner: 'role_owner', editor: 'role_editor', viewer: 'role_viewer' };
+  return t(map[String(role || '')] || 'role_editor');
+}
+
+async function loadOrgData() {
+  if (!currentUser || currentUser.role !== 'admin') return;
+  try {
+    const res = await authFetch('/api/projects');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    orgProjectsCache = data.projects || [];
+    renderOrgProjects();
+  } catch (e) {
+    console.error(e);
+    notify(t('org_load_failed'));
+  }
+}
+
+function renderOrgProjects() {
+  const body = document.getElementById('orgProjectBody');
+  const empty = document.getElementById('orgProjectEmpty');
+  if (!body) return;
+  body.innerHTML = '';
+  if (empty) empty.style.display = orgProjectsCache.length ? 'none' : 'block';
+  orgProjectsCache.forEach((p) => {
+    const tr = document.createElement('tr');
+    const desc = String(p.description || '-');
+    tr.innerHTML = `
+      <td>${p.code || ''}</td>
+      <td>${p.name || ''}</td>
+      <td title="${desc.replace(/"/g, '&quot;')}">${desc.length > 24 ? desc.slice(0, 24) + '…' : desc}</td>
+      <td>${orgStatusBadge(p.status)}</td>
+      <td>${orgRoleText(p.my_role)}</td>
+      <td>${formatTime(p.created_at)}</td>
+      <td>
+        <button class="btn btn-small" data-org-lines="${p.id}">${t('org_manage_lines')}</button>
+        <button class="btn btn-small" data-org-members="${p.id}">${t('org_manage_members')}</button>
+        <button class="btn btn-small" data-org-edit-project="${p.id}">${t('org_edit')}</button>
+      </td>`;
+    body.appendChild(tr);
+  });
+
+  body.querySelectorAll('[data-org-lines]').forEach((btn) => {
+    btn.onclick = () => openOrgLines(parseInt(btn.dataset.orgLines, 10));
+  });
+  body.querySelectorAll('[data-org-members]').forEach((btn) => {
+    btn.onclick = () => openMemberModal(parseInt(btn.dataset.orgMembers, 10));
+  });
+  body.querySelectorAll('[data-org-edit-project]').forEach((btn) => {
+    btn.onclick = () => openProjectModal('edit', parseInt(btn.dataset.orgEditProject, 10));
+  });
+
+  if (orgActiveProjectId && orgProjectsCache.some((p) => String(p.id) === String(orgActiveProjectId))) {
+    loadOrgLines();
+  } else {
+    const panel = document.getElementById('orgLinesPanel');
+    if (panel) panel.style.display = 'none';
+    orgActiveProjectId = null;
+  }
+}
+
+async function loadOrgLines() {
+  const panel = document.getElementById('orgLinesPanel');
+  const nameEl = document.getElementById('orgLinesProjectName');
+  const body = document.getElementById('orgLineBody');
+  const empty = document.getElementById('orgLineEmpty');
+  if (!panel || !body || !orgActiveProjectId) return;
+  const project = orgProjectsCache.find((p) => String(p.id) === String(orgActiveProjectId)) || {};
+  if (nameEl) nameEl.textContent = `${project.name || ''} (${project.code || ''})`;
+  panel.style.display = 'block';
+  try {
+    const res = await authFetch('/api/lines?project_id=' + encodeURIComponent(orgActiveProjectId));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    orgLinesCache = data.lines || [];
+  } catch (e) {
+    console.error(e);
+    orgLinesCache = [];
+    notify(t('org_load_failed'));
+  }
+  body.innerHTML = '';
+  if (empty) empty.style.display = orgLinesCache.length ? 'none' : 'block';
+  orgLinesCache.forEach((l) => {
+    const sopSet = String(l.sop_content || '').trim().length > 0;
+    const desc = String(l.process_desc || '-');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${l.code || ''}</td>
+      <td>${l.name || ''}</td>
+      <td title="${desc.replace(/"/g, '&quot;')}">${desc.length > 24 ? desc.slice(0, 24) + '…' : desc}</td>
+      <td>${sopSet ? orgStatusBadge('active').replace(t('status_active'), t('org_sop_configured')) : `<span class="org-badge">${t('org_sop_empty')}</span>`}</td>
+      <td>${orgStatusBadge(l.status)}</td>
+      <td>${formatTime(l.created_at)}</td>
+      <td>
+        <button class="btn btn-small" data-org-edit-line="${l.id}">${t('org_edit')}</button>
+      </td>`;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('[data-org-edit-line]').forEach((btn) => {
+    btn.onclick = () => openLineModal('edit', parseInt(btn.dataset.orgEditLine, 10));
+  });
+}
+
+function openOrgLines(projectId) {
+  orgActiveProjectId = projectId;
+  loadOrgLines();
+}
+
+function setupOrgUI() {
+  const btnCreate = document.getElementById('btnCreateProject');
+  const btnRefresh = document.getElementById('btnRefreshOrg');
+  const btnCreateLine = document.getElementById('btnCreateLine');
+
+  if (btnCreate) btnCreate.onclick = () => openProjectModal('create');
+  if (btnRefresh) btnRefresh.onclick = () => loadOrgData();
+  if (btnCreateLine) {
+    btnCreateLine.onclick = () => {
+      if (!orgActiveProjectId) {
+        notify(t('org_select_project_first'));
+        return;
+      }
+      openLineModal('create');
+    };
+  }
+
+  // 项目弹窗
+  const pModal = document.getElementById('projectModal');
+  const btnPCancel = document.getElementById('btnProjectCancel');
+  const btnPSave = document.getElementById('btnProjectSave');
+  if (btnPCancel) btnPCancel.onclick = () => pModal && pModal.classList.remove('open');
+  if (pModal) pModal.onclick = (e) => { if (e.target === pModal) pModal.classList.remove('open'); };
+  if (btnPSave) btnPSave.onclick = saveProjectModal;
+
+  // 产线弹窗
+  const lModal = document.getElementById('lineModal');
+  const btnLCancel = document.getElementById('btnLineCancel');
+  const btnLSave = document.getElementById('btnLineSave');
+  if (btnLCancel) btnLCancel.onclick = () => lModal && lModal.classList.remove('open');
+  if (lModal) lModal.onclick = (e) => { if (e.target === lModal) lModal.classList.remove('open'); };
+  if (btnLSave) btnLSave.onclick = saveLineModal;
+
+  // 成员弹窗
+  const mModal = document.getElementById('memberModal');
+  const btnMClose = document.getElementById('btnMemberClose');
+  const btnMAdd = document.getElementById('btnMemberAdd');
+  if (btnMClose) btnMClose.onclick = () => mModal && mModal.classList.remove('open');
+  if (mModal) mModal.onclick = (e) => { if (e.target === mModal) mModal.classList.remove('open'); };
+  if (btnMAdd) btnMAdd.onclick = addMemberFromModal;
+}
+
+let projectModalMode = 'create';
+let projectModalId = null;
+
+function openProjectModal(mode, projectId) {
+  projectModalMode = mode;
+  projectModalId = projectId || null;
+  const modal = document.getElementById('projectModal');
+  const title = document.getElementById('projectModalTitle');
+  const code = document.getElementById('projectFormCode');
+  const name = document.getElementById('projectFormName');
+  const desc = document.getElementById('projectFormDesc');
+  const statusGroup = document.getElementById('projectFormStatusGroup');
+  const status = document.getElementById('projectFormStatus');
+  const err = document.getElementById('projectFormError');
+  if (!modal) return;
+  if (err) err.textContent = '';
+  const project = mode === 'edit' ? orgProjectsCache.find((p) => String(p.id) === String(projectId)) || {} : {};
+  if (title) title.textContent = mode === 'edit' ? t('org_edit_project') : t('org_create_project');
+  if (code) {
+    code.value = project.code || '';
+    code.disabled = mode === 'edit';
+  }
+  if (name) name.value = project.name || '';
+  if (desc) desc.value = project.description || '';
+  if (statusGroup) statusGroup.style.display = mode === 'edit' ? 'block' : 'none';
+  if (status) status.value = String(project.status || 'active');
+  modal.classList.add('open');
+}
+
+async function saveProjectModal() {
+  const err = document.getElementById('projectFormError');
+  const code = document.getElementById('projectFormCode');
+  const name = document.getElementById('projectFormName');
+  const desc = document.getElementById('projectFormDesc');
+  const status = document.getElementById('projectFormStatus');
+  const modal = document.getElementById('projectModal');
+  const showError = (msg) => { if (err) err.textContent = msg; };
+  if (err) err.textContent = '';
+  if (!name || !String(name.value).trim()) {
+    showError(t('org_project_name'));
+    return;
+  }
+  if (projectModalMode === 'create' && (!code || !String(code.value).trim())) {
+    showError(t('org_project_code'));
+    return;
+  }
+  try {
+    let res;
+    if (projectModalMode === 'create') {
+      res = await authFetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: String(code.value).trim(), name: String(name.value).trim(), description: String(desc.value).trim() })
+      });
+    } else {
+      res = await authFetch('/api/projects/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: projectModalId,
+          name: String(name.value).trim(),
+          description: String(desc.value).trim(),
+          status: status ? status.value : 'active'
+        })
+      });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showError(data.details || data.error || t('save_failed'));
+      return;
+    }
+    if (modal) modal.classList.remove('open');
+    notify(t('org_save_success'));
+    await loadOrgData();
+    await loadScopeProjects();
+  } catch (e) {
+    showError(e.message || t('save_failed'));
+  }
+}
+
+let lineModalMode = 'create';
+let lineModalId = null;
+
+function openLineModal(mode, lineId) {
+  lineModalMode = mode;
+  lineModalId = lineId || null;
+  const modal = document.getElementById('lineModal');
+  const title = document.getElementById('lineModalTitle');
+  const code = document.getElementById('lineFormCode');
+  const name = document.getElementById('lineFormName');
+  const desc = document.getElementById('lineFormProcessDesc');
+  const sop = document.getElementById('lineFormSop');
+  const statusGroup = document.getElementById('lineFormStatusGroup');
+  const status = document.getElementById('lineFormStatus');
+  const err = document.getElementById('lineFormError');
+  if (!modal) return;
+  if (err) err.textContent = '';
+  const line = mode === 'edit' ? orgLinesCache.find((l) => String(l.id) === String(lineId)) || {} : {};
+  if (title) title.textContent = mode === 'edit' ? t('org_edit_line') : t('org_create_line');
+  if (code) {
+    code.value = line.code || '';
+    code.disabled = mode === 'edit';
+  }
+  if (name) name.value = line.name || '';
+  if (desc) desc.value = line.process_desc || '';
+  if (sop) sop.value = line.sop_content || '';
+  if (statusGroup) statusGroup.style.display = mode === 'edit' ? 'block' : 'none';
+  if (status) status.value = String(line.status || 'active');
+  modal.classList.add('open');
+}
+
+async function saveLineModal() {
+  const err = document.getElementById('lineFormError');
+  const code = document.getElementById('lineFormCode');
+  const name = document.getElementById('lineFormName');
+  const desc = document.getElementById('lineFormProcessDesc');
+  const sop = document.getElementById('lineFormSop');
+  const status = document.getElementById('lineFormStatus');
+  const modal = document.getElementById('lineModal');
+  const showError = (msg) => { if (err) err.textContent = msg; };
+  if (err) err.textContent = '';
+  if (!name || !String(name.value).trim()) {
+    showError(t('org_line_name'));
+    return;
+  }
+  if (lineModalMode === 'create' && (!code || !String(code.value).trim())) {
+    showError(t('org_line_code'));
+    return;
+  }
+  try {
+    let res;
+    if (lineModalMode === 'create') {
+      res = await authFetch('/api/lines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: orgActiveProjectId,
+          code: String(code.value).trim(),
+          name: String(name.value).trim(),
+          process_desc: String(desc.value).trim(),
+          sop_content: sop ? sop.value : ''
+        })
+      });
+    } else {
+      res = await authFetch('/api/lines/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          line_id: lineModalId,
+          name: String(name.value).trim(),
+          process_desc: String(desc.value).trim(),
+          sop_content: sop ? sop.value : '',
+          status: status ? status.value : 'active'
+        })
+      });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showError(data.details || data.error || t('save_failed'));
+      return;
+    }
+    if (modal) modal.classList.remove('open');
+    notify(t('org_sop_saved'));
+    await loadOrgLines();
+    if (currentScope.project_id) loadScopeLines(null);
+  } catch (e) {
+    showError(e.message || t('save_failed'));
+  }
+}
+
+let memberModalProjectId = null;
+
+async function openMemberModal(projectId) {
+  memberModalProjectId = projectId;
+  const modal = document.getElementById('memberModal');
+  const title = document.getElementById('memberModalTitle');
+  if (!modal) return;
+  const project = orgProjectsCache.find((p) => String(p.id) === String(projectId)) || {};
+  if (title) title.textContent = `${t('org_members')} · ${project.name || ''}`;
+  const input = document.getElementById('memberFormUsername');
+  if (input) input.value = '';
+  modal.classList.add('open');
+  await renderMembers();
+}
+
+async function renderMembers() {
+  const body = document.getElementById('memberTableBody');
+  const empty = document.getElementById('memberEmpty');
+  if (!body || !memberModalProjectId) return;
+  body.innerHTML = '';
+  try {
+    const res = await authFetch('/api/members?project_id=' + encodeURIComponent(memberModalProjectId));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const members = data.members || [];
+    if (empty) empty.style.display = members.length ? 'none' : 'block';
+    members.forEach((m) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${m.username || ''}</td>
+        <td>${orgRoleText(m.role)}</td>
+        <td>${m.user_role === 'admin' ? t('role_admin') : t('role_user')}</td>
+        <td><button class="btn btn-small" data-org-remove-member="${m.username}">${t('org_remove')}</button></td>`;
+      body.appendChild(tr);
+    });
+    body.querySelectorAll('[data-org-remove-member]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm(t('org_remove_member_confirm', { username: btn.dataset.orgRemoveMember }))) return;
+        try {
+          const res2 = await authFetch('/api/members/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_id: memberModalProjectId, username: btn.dataset.orgRemoveMember })
+          });
+          if (!res2.ok) {
+            const data2 = await res2.json().catch(() => ({}));
+            notify(data2.details || data2.error || t('save_failed'));
+            return;
+          }
+          notify(t('org_member_removed'));
+          await renderMembers();
+          await loadOrgData();
+        } catch (e) {
+          notify(e.message || t('save_failed'));
+        }
+      };
+    });
+  } catch (e) {
+    console.error(e);
+    notify(t('org_load_failed'));
+  }
+}
+
+async function addMemberFromModal() {
+  const input = document.getElementById('memberFormUsername');
+  const roleSel = document.getElementById('memberFormRole');
+  if (!input || !String(input.value).trim()) {
+    notify(t('org_member_username'));
+    return;
+  }
+  try {
+    const res = await authFetch('/api/members', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_id: memberModalProjectId,
+        username: String(input.value).trim(),
+        role: roleSel ? roleSel.value : 'editor'
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      notify(data.details || data.error || t('save_failed'));
+      return;
+    }
+    notify(t('org_save_success'));
+    input.value = '';
+    await renderMembers();
+  } catch (e) {
+    notify(e.message || t('save_failed'));
+  }
+}
+
 async function loadVideoList() {
   const sel = document.getElementById('detectVideoSelect');
   if (!sel) return;
   try {
-    const res = await authFetch('/api/list_videos');
+    const res = await authFetch('/api/list_videos' + scopeQueryString());
     const data = await res.json();
     sel.innerHTML = `<option value="">${t('select_video_placeholder')}</option>`;
     (data.files || []).forEach((f) => {
@@ -1601,7 +2365,14 @@ function setupDetectionUI() {
         appendLog(
           log,
           t('request_params_log', {
-            params: JSON.stringify({ video_path: videoPath, model, fps, ui_lang: currentLang || 'zh' })
+            params: JSON.stringify({
+              video_path: videoPath,
+              model,
+              fps,
+              ui_lang: currentLang || 'zh',
+              project_id: currentScope.project_id || undefined,
+              line_id: currentScope.line_id || undefined
+            })
           })
         );
         log.scrollTop = log.scrollHeight;
@@ -1615,7 +2386,14 @@ function setupDetectionUI() {
         const res = await authFetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-UI-Lang': uiLang },
-          body: JSON.stringify({ video_path: videoPath, model, fps, ui_lang: uiLang })
+          body: JSON.stringify({
+            video_path: videoPath,
+            model,
+            fps,
+            ui_lang: uiLang,
+            project_id: currentScope.project_id || undefined,
+            line_id: currentScope.line_id || undefined
+          })
         });
 
         if (!res.ok) {
@@ -1652,6 +2430,141 @@ function setupDetectionUI() {
   }
 }
 
+function updateProgressUI(taskData) {
+  const pBar = document.getElementById('detectionProgressBar');
+  const pText = document.getElementById('detectionProgressText');
+  if (taskData.progress && pBar && pText) {
+    const { current, total } = taskData.progress;
+    if (total > 0) {
+      const pct = Math.min(100, Math.max(0, (current / total) * 100)).toFixed(1);
+      pBar.style.width = pct + '%';
+      const progressKey = taskData.progress_unit === 'request' ? 'detect_progress_request' : 'detect_progress';
+      pText.textContent = t(progressKey, { current, total, pct });
+    } else {
+      pBar.style.width = '0%';
+      pText.textContent = t('prepare_text');
+    }
+  }
+}
+
+function applyTaskData(data) {
+  const log = document.getElementById('detectLog');
+  if (!log || !data.logs) return;
+
+  if (data.logs.length < renderedLogCount) {
+    log.textContent = '';
+    renderedLogCount = 0;
+  }
+
+  if (data.logs.length > renderedLogCount) {
+    const fragment = document.createDocumentFragment();
+    const newLogs = data.logs.slice(renderedLogCount);
+
+    newLogs.forEach((line) => {
+      appendLog(fragment, line);
+    });
+
+    log.appendChild(fragment);
+    renderedLogCount = data.logs.length;
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+function handleTaskCompleted(data, log) {
+  if (!(data.result && log)) return;
+
+  appendLog(
+    log,
+    t('task_complete', {
+      time: new Date().toLocaleTimeString(),
+      json: data.result.json_path,
+      video: data.result.video_path
+    })
+  );
+  appendLog(log, t('jump_to_review'));
+  log.scrollTop = log.scrollHeight;
+
+  setTimeout(() => {
+    switchTab('review');
+    loadResultList().then(() => {
+      const resultSel = document.getElementById('reviewResultSelect');
+      const videoSel = document.getElementById('reviewVideoSelect');
+      if (!resultSel || !videoSel) return;
+      const targetVideoName = data.result.video_path.split(/[/\\]/).pop();
+
+      // Select video, which triggers autoSelectResultByVideoPrefix (handling language preference)
+      Array.from(videoSel.options).forEach((o) => {
+        if (o.value.includes(targetVideoName)) videoSel.value = o.value;
+      });
+      videoSel.dispatchEvent(new Event('change'));
+    });
+  }, 1500);
+}
+
+function handleTaskFailed(data, log) {
+  const errorMsg = data.error_msg || t('unknown_error');
+  if (log) {
+    appendLog(log, `[ERROR] ${errorMsg}\n`);
+    log.scrollTop = log.scrollHeight;
+  }
+  notify(`${t('process_failed_check_log')}\n${t('reason')}: ${errorMsg}`);
+}
+
+/**
+ * SSE 任务事件流（EventSource 无法携带 Authorization 头，通过 ?token= 鉴权）。
+ * onPayload 收到每个状态事件，返回 true 表示终态已处理、流可关闭。
+ * 返回 Promise<boolean>：true = SSE 已接管至终态；false = 不可用/中途断开，需回退轮询。
+ */
+function streamTaskStatus(onPayload) {
+  return new Promise((resolve) => {
+    if (typeof EventSource === 'undefined') {
+      resolve(false);
+      return;
+    }
+    const token = getToken();
+    if (!token) {
+      resolve(false);
+      return;
+    }
+
+    let es;
+    try {
+      es = new EventSource(withMediaToken('/api/task_events'));
+    } catch (e) {
+      console.warn('EventSource unavailable, fallback to polling:', e);
+      resolve(false);
+      return;
+    }
+
+    let settled = false;
+    const finish = (handled) => {
+      if (settled) return;
+      settled = true;
+      try {
+        es.close();
+      } catch {}
+      resolve(handled);
+    };
+
+    es.addEventListener('status', (ev) => {
+      let payload;
+      try {
+        payload = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      let done = false;
+      try {
+        done = Boolean(onPayload(payload));
+      } catch (e) {
+        console.error('SSE payload handler error:', e);
+      }
+      if (done) finish(true);
+    });
+    es.onerror = () => finish(false); // 连接失败/中断：回退轮询
+  });
+}
+
 async function pollTaskStatus() {
   if (isPolling) return;
 
@@ -1669,25 +2582,7 @@ async function pollTaskStatus() {
     const btn = document.getElementById('btnStartDetect');
     const taskRunningBar = document.getElementById('taskRunningBar');
 
-    if (log && data.logs) {
-      if (data.logs.length < renderedLogCount) {
-        log.textContent = '';
-        renderedLogCount = 0;
-      }
-
-      if (data.logs.length > renderedLogCount) {
-        const fragment = document.createDocumentFragment();
-        const newLogs = data.logs.slice(renderedLogCount);
-
-        newLogs.forEach((line) => {
-          appendLog(fragment, line);
-        });
-
-        log.appendChild(fragment);
-        renderedLogCount = data.logs.length;
-        log.scrollTop = log.scrollHeight;
-      }
-    }
+    applyTaskData(data);
 
     if (data.status !== 'running') {
       return;
@@ -1700,24 +2595,32 @@ async function pollTaskStatus() {
     }
     if (taskRunningBar) taskRunningBar.style.display = 'flex';
 
-    const updateProgressUI = (taskData) => {
-      const pBar = document.getElementById('detectionProgressBar');
-      const pText = document.getElementById('detectionProgressText');
-      if (taskData.progress && pBar && pText) {
-        const { current, total } = taskData.progress;
-        if (total > 0) {
-          const pct = Math.min(100, Math.max(0, (current / total) * 100)).toFixed(1);
-          pBar.style.width = pct + '%';
-          const progressKey = taskData.progress_unit === 'request' ? 'detect_progress_request' : 'detect_progress';
-          pText.textContent = t(progressKey, { current, total, pct });
-        } else {
-          pBar.style.width = '0%';
-          pText.textContent = t('prepare_text');
-        }
+    updateProgressUI(data);
+
+    // 单个任务数据的统一处理：进度 UI + 增量日志 + 终态分支。返回 true 表示已到终态。
+    const consumeTaskData = (taskData) => {
+      if (!currentUser) return true;
+
+      updateProgressUI(taskData);
+      applyTaskData(taskData);
+
+      if (taskData.status === 'completed') {
+        handleTaskCompleted(taskData, log);
+        return true;
       }
+      if (taskData.status === 'failed') {
+        handleTaskFailed(taskData, log);
+        return true;
+      }
+      if (taskData.status === 'none') {
+        return true;
+      }
+      return false;
     };
 
-    updateProgressUI(data);
+    // 优先走 SSE 推送；不可用或中途断开时回退 2s 轮询
+    const sseHandled = await streamTaskStatus(consumeTaskData);
+    if (sseHandled) return;
 
     while (true) {
       await new Promise((r) => setTimeout(r, 2000));
@@ -1728,66 +2631,7 @@ async function pollTaskStatus() {
       if (!pollRes.ok) break;
       const pollData = await pollRes.json();
 
-      updateProgressUI(pollData);
-
-      if (log && pollData.logs) {
-        if (pollData.logs.length < renderedLogCount) {
-          log.textContent = '';
-          renderedLogCount = 0;
-        }
-
-        if (pollData.logs.length > renderedLogCount) {
-          const fragment = document.createDocumentFragment();
-          const newLogs = pollData.logs.slice(renderedLogCount);
-          newLogs.forEach((line) => appendLog(fragment, line));
-          log.appendChild(fragment);
-          renderedLogCount = pollData.logs.length;
-          log.scrollTop = log.scrollHeight;
-        }
-      }
-
-      if (pollData.status === 'completed') {
-        if (pollData.result && log) {
-          appendLog(
-            log,
-            t('task_complete', {
-              time: new Date().toLocaleTimeString(),
-              json: pollData.result.json_path,
-              video: pollData.result.video_path
-            })
-          );
-          appendLog(log, t('jump_to_review'));
-          log.scrollTop = log.scrollHeight;
-
-          setTimeout(() => {
-            switchTab('review');
-            loadResultList().then(() => {
-              const resultSel = document.getElementById('reviewResultSelect');
-              const videoSel = document.getElementById('reviewVideoSelect');
-              if (!resultSel || !videoSel) return;
-              const targetVideoName = pollData.result.video_path.split(/[/\\]/).pop();
-
-              // Select video, which triggers autoSelectResultByVideoPrefix (handling language preference)
-              Array.from(videoSel.options).forEach((o) => {
-                if (o.value.includes(targetVideoName)) videoSel.value = o.value;
-              });
-              videoSel.dispatchEvent(new Event('change'));
-
-            });
-          }, 1500);
-        }
-        break;
-      } else if (pollData.status === 'failed') {
-        const errorMsg = pollData.error_msg || t('unknown_error');
-        if (log) {
-          appendLog(log, `[ERROR] ${errorMsg}\n`);
-          log.scrollTop = log.scrollHeight;
-        }
-        notify(`${t('process_failed_check_log')}\n${t('reason')}: ${errorMsg}`);
-        break;
-      } else if (pollData.status === 'none') {
-        break;
-      }
+      if (consumeTaskData(pollData)) break;
     }
   } catch (e) {
     console.error('Polling error:', e);
@@ -2130,10 +2974,15 @@ async function persistActionsUpdate({ silentSuccess = false } = {}) {
         renderActions(currentActions);
       }
       refreshStationCompareChart();
+      // 阶段 3：编辑可能改变动作区间，刷新缩略图（签名变化时后端自动重建）
+      fetchResultThumbs(resultFile);
+      renderVaNvaStats(currentActions);
       if (!silentSuccess) notify(t('save_success'));
       return;
     }
     refreshStationCompareChart();
+    fetchResultThumbs(resultFile);
+    renderVaNvaStats(currentActions);
     if (!silentSuccess) notify(t('save_success'));
   } catch (e) {
     notify(t('save_failed_with_error', { error: e.message }));
@@ -2480,7 +3329,7 @@ async function loadResultList() {
   const vidSel = document.getElementById('reviewVideoSelect');
   if (!resSel || !vidSel) return;
   try {
-    const res = await authFetch('/api/list_results');
+    const res = await authFetch('/api/list_results' + scopeQueryString());
     const data = await res.json();
 
     const oldRes = resSel.value;
@@ -3239,6 +4088,11 @@ function renderActionsTable(table, actions) {
   };
 
   gridTemplate = buildFixedGridTemplate(headers, maxCols);
+
+  // 阶段 3：首列为动作首帧缩略图列
+  gridTemplate = '64px ' + gridTemplate;
+  headers.unshift(t('action_thumb'));
+  maxCols += 1;
   
   elHeader.style.display = 'grid';
   elHeader.style.gridTemplateColumns = gridTemplate;
@@ -3306,15 +4160,22 @@ function renderActionsTable(table, actions) {
     // Ensure we render all cells, even if they exceed original header count
     // Pad with empty strings if row is shorter than maxCols
     const renderCells = Array.isArray(cellsDisplay) ? [...cellsDisplay] : [];
-    while (renderCells.length < maxCols) {
+    while (renderCells.length < maxCols - 1) {
         renderCells.push('');
     }
+    // 阶段 3：首格为缩略图占位（由 applyThumbsToRows 异步填充）
+    renderCells.unshift('');
 
-    renderCells.forEach(cellText => {
+    renderCells.forEach((cellText, cellIdx) => {
       const cellDiv = document.createElement('div');
       cellDiv.className = 'col-content';
-      cellDiv.textContent = cellText;
-      cellDiv.title = cellText;
+      if (cellIdx === 0) {
+        cellDiv.className = 'col-content action-thumb-cell';
+        cellDiv.dataset.actionIndex = String(actionIdx);
+      } else {
+        cellDiv.textContent = cellText;
+        cellDiv.title = cellText;
+      }
       cellDiv.style.padding = '8px';
       cellDiv.style.borderRight = '1px solid var(--border)';
       cellDiv.style.overflow = 'hidden';
@@ -3342,6 +4203,7 @@ function renderActionsTable(table, actions) {
   renderActionTimeline(currentActions);
   enforceClipRange();
   refreshDynamicText();
+  applyThumbsToRows();
 }
 
 function renderActions(actions) {
@@ -3363,6 +4225,300 @@ function renderActions(actions) {
        ];
    });
    renderActionsTable({ headers: getDefaultActionsHeaders(), rows: rows }, actions);
+}
+
+// ---------------------------------------------------------------------------
+// 阶段 3：动作首帧缩略图
+// ---------------------------------------------------------------------------
+
+let currentThumbs = [];
+let currentThumbsPath = '';
+
+async function fetchResultThumbs(path) {
+  if (!path) return;
+  currentThumbsPath = path;
+  try {
+    const res = await authFetch('/api/result_thumbs?path=' + encodeURIComponent(path));
+    if (!res.ok) throw new Error('status ' + res.status);
+    const data = await res.json();
+    if (path !== currentThumbsPath) return;
+    currentThumbs = Array.isArray(data.thumbs) ? data.thumbs : [];
+  } catch (e) {
+    console.warn('thumbs unavailable:', e);
+    currentThumbs = [];
+  }
+  applyThumbsToRows();
+}
+
+function buildThumbPlaceholder() {
+  const ph = document.createElement('div');
+  ph.className = 'action-thumb action-thumb-placeholder';
+  ph.textContent = '—';
+  return ph;
+}
+
+function applyThumbsToRows() {
+  document.querySelectorAll('#actionsList .action-item').forEach((row) => {
+    const cell = row.querySelector('.action-thumb-cell');
+    if (!cell) return;
+    const idx = Number(cell.dataset.actionIndex);
+    cell.innerHTML = '';
+    if (Number.isFinite(idx) && currentThumbs[idx]) {
+      const img = document.createElement('img');
+      img.className = 'action-thumb';
+      img.loading = 'lazy';
+      img.alt = '';
+      img.src = withMediaToken('/' + currentThumbs[idx]);
+      img.onerror = () => {
+        if (img.parentNode) img.replaceWith(buildThumbPlaceholder());
+      };
+      cell.appendChild(img);
+    } else {
+      cell.appendChild(buildThumbPlaceholder());
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 阶段 3：VA / NVA 增值统计
+// ---------------------------------------------------------------------------
+
+const VANVA_COLORS = {
+  va: '#4caf50',
+  nva: '#ef5350',
+  nnva: '#ffa726',
+  unknown: '#90a4ae'
+};
+
+let vanvaChartInstance = null;
+
+function classifyVaNva(value) {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (!v) return 'unknown';
+  if (v.includes('必要') || v.includes('nnva') || v.includes('necessary')) return 'nnva';
+  if (v.includes('非增值') || v === 'nva' || v.includes('non-value') || v.includes('non value')) return 'nva';
+  if (v.includes('增值') || v === 'va' || v.includes('value-added') || v.includes('value added')) return 'va';
+  return 'unknown';
+}
+
+function renderVaNvaStats(actions) {
+  const panel = document.getElementById('vanvaPanel');
+  if (!panel) return;
+  const list = Array.isArray(actions) ? actions : [];
+
+  const buckets = { va: 0, nva: 0, nnva: 0, unknown: 0 };
+  const counts = { va: 0, nva: 0, nnva: 0, unknown: 0 };
+  let total = 0;
+  for (const act of list) {
+    const s = Number.parseFloat(act?.start_time);
+    const e = Number.parseFloat(act?.end_time);
+    const dur = Number.isFinite(s) && Number.isFinite(e) ? Math.max(0, e - s) : 0;
+    const key = classifyVaNva(act?.value_added);
+    buckets[key] += dur;
+    counts[key] += 1;
+    total += dur;
+  }
+
+  if (!total) {
+    panel.style.display = 'none';
+    if (vanvaChartInstance) {
+      try { vanvaChartInstance.destroy(); } catch {}
+      vanvaChartInstance = null;
+    }
+    return;
+  }
+
+  panel.style.display = 'block';
+  const keys = ['va', 'nva', 'nnva', 'unknown'];
+  const labels = {
+    va: t('vanva_va'),
+    nva: t('vanva_nva'),
+    nnva: t('vanva_nnva'),
+    unknown: t('vanva_unknown')
+  };
+
+  const canvas = document.getElementById('vanvaChart');
+  if (canvas && typeof Chart !== 'undefined') {
+    const ctx = canvas.getContext('2d');
+    if (vanvaChartInstance) {
+      try { vanvaChartInstance.destroy(); } catch {}
+      vanvaChartInstance = null;
+    }
+    vanvaChartInstance = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: keys.map((k) => labels[k]),
+        datasets: [
+          {
+            data: keys.map((k) => Number(buckets[k].toFixed(2))),
+            backgroundColor: keys.map((k) => VANVA_COLORS[k]),
+            borderColor: 'rgba(0,0,0,0.12)',
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        animation: false,
+        cutout: '58%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (item) => {
+                const k = keys[item.dataIndex];
+                const pct = total > 0 ? ((buckets[k] / total) * 100).toFixed(1) : '0';
+                return `${item.label}: ${buckets[k].toFixed(1)}s (${pct}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  const legend = document.getElementById('vanvaLegend');
+  if (legend) {
+    legend.innerHTML = '';
+    keys.forEach((k) => {
+      const pct = total > 0 ? ((buckets[k] / total) * 100).toFixed(1) : '0';
+      const rowEl = document.createElement('div');
+      rowEl.className = 'vanva-legend-row';
+      rowEl.innerHTML = `
+        <span class="vanva-legend-dot" style="background:${VANVA_COLORS[k]}"></span>
+        <span class="vanva-legend-name">${labels[k]}</span>
+        <span class="vanva-legend-meta">${counts[k]} ${t('vanva_actions_unit')} · ${buckets[k].toFixed(1)}s · ${pct}%</span>
+      `;
+      legend.appendChild(rowEl);
+    });
+    const totalRow = document.createElement('div');
+    totalRow.className = 'vanva-legend-row vanva-legend-total';
+    totalRow.innerHTML = `
+      <span class="vanva-legend-dot" style="background:transparent"></span>
+      <span class="vanva-legend-name">${t('vanva_total')}</span>
+      <span class="vanva-legend-meta">${total.toFixed(1)}s</span>
+    `;
+    legend.appendChild(totalRow);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 阶段 3：动作表 CSV 导出（所见即所得）
+// ---------------------------------------------------------------------------
+
+function exportActionsCsv() {
+  const headerEl = document.getElementById('actionsListHeader');
+  const listEl = document.getElementById('actionsList');
+  if (!headerEl || !listEl || !currentActions.length) {
+    notify(t('no_result_selected'));
+    return;
+  }
+
+  const headers = Array.from(headerEl.querySelectorAll('div'))
+    .map((el) => el.textContent || '')
+    .slice(1); // 跳过缩略图列
+  const rows = Array.from(listEl.querySelectorAll('.action-item')).map((row) =>
+    Array.from(row.querySelectorAll('.col-content'))
+      .filter((el) => !el.classList.contains('action-thumb-cell'))
+      .map((el) => el.textContent || '')
+  );
+
+  const esc = (v) => {
+    const s = String(v ?? '');
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [headers.map(esc).join(',')];
+  rows.forEach((r) => lines.push(r.map(esc).join(',')));
+  const csv = '\uFEFF' + lines.join('\r\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const base = (currentJsonPath || 'actions')
+    .split('/')
+    .pop()
+    .replace(/\.[^.]+$/, '');
+  a.href = url;
+  a.download = `${base}_actions.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// 阶段 3：修订历史（留痕 + 回滚）
+// ---------------------------------------------------------------------------
+
+async function showRevisionHistory() {
+  if (!currentJsonPath) {
+    notify(t('no_result_selected'));
+    return;
+  }
+  const modal = document.getElementById('revisionModal');
+  const listEl = document.getElementById('revisionList');
+  if (!modal || !listEl) return;
+  modal.classList.add('open');
+  listEl.innerHTML = `<div style="color:var(--muted)">loading...</div>`;
+  try {
+    const res = await authFetch('/api/result_revisions?path=' + encodeURIComponent(currentJsonPath));
+    const data = await res.json();
+    const revisions = Array.isArray(data.revisions) ? data.revisions : [];
+    if (!revisions.length) {
+      listEl.innerHTML = `<div style="color:var(--muted)">${t('revision_none')}</div>`;
+      return;
+    }
+    listEl.innerHTML = '';
+    revisions.forEach((rev) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'revision-row';
+      const note = String(rev.revision_note || '');
+      const noteText = note.startsWith('before_restore#')
+        ? `${t('revision_history')} #${note.split('#')[1]}`
+        : t('edit_action');
+      rowEl.innerHTML = `
+        <div class="revision-meta">
+          <span class="revision-id">#${rev.id}</span>
+          <span class="revision-time">${String(rev.created_at || '')}</span>
+          <span class="revision-user">${String(rev.created_by || '')}</span>
+          <span class="revision-count">${rev.action_count} ${t('vanva_actions_unit')}</span>
+          <span class="revision-note">${noteText}</span>
+        </div>
+      `;
+      const btn = document.createElement('button');
+      btn.className = 'btn revision-restore-btn';
+      btn.textContent = t('revision_restore');
+      btn.onclick = async () => {
+        if (!window.confirm(t('revision_restore_confirm'))) return;
+        await restoreRevision(rev.id);
+      };
+      rowEl.appendChild(btn);
+      listEl.appendChild(rowEl);
+    });
+  } catch (e) {
+    listEl.innerHTML = `<div style="color:var(--danger,#ef5350)">${t('revision_load_failed', { error: e.message })}</div>`;
+  }
+}
+
+async function restoreRevision(revisionId) {
+  try {
+    const res = await authFetch('/api/result_revisions/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision_id: revisionId })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'status ' + res.status);
+    notify(t('revision_restored'));
+    const sel = document.getElementById('reviewResultSelect');
+    if (sel && sel.value) {
+      sel.dispatchEvent(new Event('change'));
+    }
+    showRevisionHistory();
+  } catch (e) {
+    notify(t('revision_load_failed', { error: e.message }));
+  }
 }
 
 let chartInstance = null;
@@ -3696,6 +4852,11 @@ function setupReviewUI() {
         updateTimelinePlayhead();
         refreshStationCompareChart();
 
+        // 阶段 3：结果查看增强 —— 缩略图 + VA/NVA 统计
+        currentThumbs = [];
+        fetchResultThumbs(currentJsonPath);
+        renderVaNvaStats(currentActions);
+
         const view = document.getElementById('view-review');
         if (view) view.scrollTop = 0;
       } catch (e) {
@@ -3708,7 +4869,7 @@ function setupReviewUI() {
   if (videoSel) {
     videoSel.addEventListener('change', (e) => {
       if (e.target.value && elVideo) {
-        elVideo.src = '/' + e.target.value;
+        elVideo.src = withMediaToken('/' + e.target.value);
         const name = document.getElementById('videoName');
         if (name) name.textContent = e.target.value;
         autoSelectResultByVideoPrefix(e.target.value);
@@ -3803,6 +4964,16 @@ function setupReviewUI() {
   const btnSaveEdit = document.getElementById('btnSaveEdit');
   bindEnterToButton(elEditModal, btnSaveEdit);
 
+  // 阶段 3：修订历史弹窗
+  const btnCloseRevisions = document.getElementById('btnCloseRevisions');
+  const revisionModal = document.getElementById('revisionModal');
+  if (btnCloseRevisions && revisionModal) {
+    btnCloseRevisions.onclick = () => revisionModal.classList.remove('open');
+    revisionModal.addEventListener('click', (e) => {
+      if (e.target === revisionModal) revisionModal.classList.remove('open');
+    });
+  }
+
   let editingActionIndex = -1;
   const minActionGap = 0.1;
 
@@ -3858,6 +5029,8 @@ function setupReviewUI() {
     if (elEditModal) elEditModal.classList.remove('open');
     const notifyModal = document.getElementById('notifyModal');
     if (notifyModal) notifyModal.classList.remove('open');
+    const revModal = document.getElementById('revisionModal');
+    if (revModal) revModal.classList.remove('open');
   });
 
   if (elContextMenu) {
@@ -4195,6 +5368,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupReviewUI();
   setupSettingsUI();
   setupCalculatorUI();
+  setupScopeUI();
+  setupOrgUI();
 
   loadVideoList();
   loadResultList();

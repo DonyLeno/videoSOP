@@ -1,0 +1,151 @@
+<div class="project-settings-grid">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="user-toolbar">
+        <span data-i18n="project_info_title">项目信息</span>
+        <button class="btn btn-small" type="button" id="btnEditProject" style="display:none;" data-i18n="edit">编辑</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="project-info-grid" id="projectInfoGrid">
+        <div class="project-info-item">
+          <div class="project-info-label" data-i18n="project_name">项目名称</div>
+          <div class="project-info-value" id="psProjectName">-</div>
+        </div>
+        <div class="project-info-item">
+          <div class="project-info-label" data-i18n="project_code">项目编号</div>
+          <div class="project-info-value" id="psProjectCode">-</div>
+        </div>
+        <div class="project-info-item">
+          <div class="project-info-label" data-i18n="project_status">状态</div>
+          <div class="project-info-value" id="psProjectStatus">-</div>
+        </div>
+        <div class="project-info-item">
+          <div class="project-info-label" data-i18n="project_my_role">我的角色</div>
+          <div class="project-info-value" id="psProjectRole">-</div>
+        </div>
+        <div class="project-info-item project-info-full">
+          <div class="project-info-label" data-i18n="project_desc">项目描述</div>
+          <div class="project-info-value" id="psProjectDesc">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="user-toolbar">
+        <span data-i18n="project_lines_title">产线与 SOP</span>
+        <button class="btn btn-small" type="button" id="btnCreateLine" style="display:none;" data-i18n="line_create">新建产线</button>
+      </div>
+    </div>
+    <div class="panel-body" style="overflow-x:auto;">
+      <table class="user-table project-table">
+        <thead>
+          <tr>
+            <th data-i18n="line_name">产线名称</th>
+            <th data-i18n="line_code">产线编号</th>
+            <th data-i18n="line_process">工艺说明</th>
+            <th data-i18n="line_sop">SOP 配置</th>
+            <th data-i18n="project_actions">操作</th>
+          </tr>
+        </thead>
+        <tbody id="psLineBody"></tbody>
+      </table>
+      <div id="psLineEmpty" class="empty-inline" style="display:none;" data-i18n="project_no_lines">暂无产线</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="user-toolbar">
+        <span data-i18n="project_members_title">项目成员</span>
+        <span class="pill" id="psMemberCount">0</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="project-member-add" id="projectMemberAdd" style="display:none;">
+        <input type="text" id="psMemberUsername" class="form-control" data-i18n-placeholder="project_member_username_ph" placeholder="成员用户名">
+        <select id="psMemberRole" class="form-control">
+          <option value="viewer" data-i18n="role_viewer">只读成员</option>
+          <option value="editor" data-i18n="role_editor">标注成员</option>
+          <option value="owner" data-i18n="role_owner">项目负责人</option>
+        </select>
+        <button class="btn" type="button" id="btnAddMember" data-i18n="project_add_member">添加成员</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="user-table project-table">
+          <thead>
+            <tr>
+              <th data-i18n="username">用户名</th>
+              <th data-i18n="project_member_role">角色</th>
+              <th data-i18n="project_member_joined">加入时间</th>
+              <th data-i18n="project_actions">操作</th>
+            </tr>
+          </thead>
+          <tbody id="psMemberBody"></tbody>
+        </table>
+        <div id="psMemberEmpty" class="empty-inline" style="display:none;" data-i18n="project_no_members">暂无成员</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="projectModal" class="modal-overlay">
+  <div class="modal-content" style="width: 460px;">
+    <div class="modal-header" id="projectModalTitle" data-i18n="org_edit_project">编辑项目</div>
+    <div class="modal-form-group">
+      <label data-i18n="project_name">项目名称</label>
+      <input type="text" id="projectNameInput" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="project_code">项目编号</label>
+      <input type="text" id="projectCodeInput" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="project_desc">项目描述</label>
+      <input type="text" id="projectDescInput" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="project_status">状态</label>
+      <select id="projectStatusInput" class="modal-input">
+        <option value="active" data-i18n="status_active">启用</option>
+        <option value="archived" data-i18n="status_archived">归档</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-modal btn-cancel" id="btnCancelProject" data-i18n="cancel">取消</button>
+      <button class="btn-modal btn-save" id="btnSaveProject" data-i18n="save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="lineModal" class="modal-overlay">
+  <div class="modal-content" style="width: 560px;">
+    <div class="modal-header" id="lineModalTitle" data-i18n="line_create">新建产线</div>
+    <div class="modal-form-group">
+      <label data-i18n="line_name">产线名称</label>
+      <input type="text" id="lineNameInput" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="line_code">产线编号</label>
+      <input type="text" id="lineCodeInput" class="modal-input">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="line_process">工艺说明</label>
+      <input type="text" id="lineDescInput" class="modal-input">
+    </div>
+    <div class="modal-form-group" id="lineStationGroup">
+      <label for="lineStationInput" data-i18n="line_station_count">工位数量（创建后自动生成）</label>
+      <input type="number" id="lineStationInput" class="modal-input" min="0" max="60" step="1" value="4">
+    </div>
+    <div class="modal-form-group">
+      <label data-i18n="line_sop">SOP 配置 (Prompt)</label>
+      <textarea id="lineSopInput" class="modal-input" rows="6"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-modal btn-cancel" id="btnCancelLine" data-i18n="cancel">取消</button>
+      <button class="btn-modal btn-save" id="btnSaveLine" data-i18n="save">保存</button>
+    </div>
+  </div>
+</div>

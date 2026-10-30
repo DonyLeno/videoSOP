@@ -13,9 +13,14 @@ if parent_dir not in sys.path:
 
 try:
     from backend.app_db import get_user_api_key_model, get_db_connection, _get_sqlite_connection
+    from backend.app_logging import get_logger
+    logger = get_logger("translate")
 except ImportError:
     # Fallback if run directly and path setup fails
-    print("Warning: Could not import backend modules. Database access might fail.")
+    import logging
+
+    logger = logging.getLogger("geniview.translate")
+    logger.warning("Could not import backend modules. Database access might fail.")
 
 # Configuration
 # Kimi API key (Moonshot AI) - Placeholder, should be provided via environment variable or argument
@@ -39,7 +44,7 @@ def get_api_key_from_db(username: str = "admin") -> Optional[str]:
         # If no admin key, maybe check env again or return None
         return None
     except Exception as e:
-        print(f"Error retrieving API key from DB: {e}")
+        logger.error("Error retrieving API key from DB: %s", e)
         return None
 
 def _protect_code_blocks(content: str) -> Tuple[str, List[str]]:
@@ -168,21 +173,21 @@ def _translate_chunk(client: OpenAI, chunk: str) -> str:
 
 def translate_file(input_path: str, api_key: Optional[str] = None):
     if not os.path.exists(input_path):
-        print(f"Error: Input file not found: {input_path}")
+        logger.error("Input file not found: %s", input_path)
         return
 
     # Determine which API key to use
     key_to_use = api_key
     if not key_to_use:
         key_to_use = os.environ.get("MOONSHOT_API_KEY", "")
-    
+
     if not key_to_use:
         # Try to get from DB (admin)
-        print("No API Key provided. Attempting to retrieve from database (admin user)...")
+        logger.info("No API Key provided. Attempting to retrieve from database (admin user)...")
         key_to_use = get_api_key_from_db("admin")
-        
+
     if not key_to_use:
-        print("Error: No API Key available for translation (checked args, env, and admin DB).")
+        logger.error("No API Key available for translation (checked args, env, and admin DB).")
         return
 
     # Prepare output path
@@ -190,18 +195,18 @@ def translate_file(input_path: str, api_key: Optional[str] = None):
     base_name = os.path.basename(input_path)
     output_filename = f"en_{base_name}"
     output_path = os.path.join(dir_name, output_filename)
-    
-    print(f"Reading input file: {input_path}")
+
+    logger.info("Reading input file: %s", input_path)
     with open(input_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    print("Initializing Kimi client...")
+    logger.info("Initializing Kimi client...")
     client = OpenAI(
         api_key=key_to_use,
         base_url="https://api.moonshot.cn/v1",
     )
 
-    print("Sending translation request to Kimi 2.5 Flash...")
+    logger.info("Sending translation request to Kimi 2.5 Flash...")
     try:
         safe_content, code_blocks = _protect_code_blocks(content)
         base_sections = _split_markdown_sections(safe_content)
@@ -211,20 +216,20 @@ def translate_file(input_path: str, api_key: Optional[str] = None):
         translated_parts: List[str] = []
         total = max(1, len(chunks))
         for i, chunk in enumerate(chunks, start=1):
-            print(f"Translating section {i}/{total}...")
+            logger.info("Translating section %d/%d...", i, total)
             translated = _translate_chunk(client, chunk)
             translated_parts.append(translated if translated.strip() else chunk)
         translated_content = "\n\n".join([p.strip() for p in translated_parts if p.strip()])
         translated_content = _restore_code_blocks(translated_content, code_blocks)
-        
-        print(f"Writing translated content to: {output_path}")
+
+        logger.info("Writing translated content to: %s", output_path)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(translated_content)
-            
-        print("Translation complete.")
-        
+
+        logger.info("Translation complete.")
+
     except Exception as e:
-        print(f"Translation failed: {e}")
+        logger.error("Translation failed: %s", e)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Translate markdown file using Kimi 2.5 Flash")
@@ -236,19 +241,19 @@ if __name__ == "__main__":
     api_key = args.api_key
     
     if not api_key:
-        print("No API Key provided in args or env. Attempting to retrieve from database (admin user)...")
+        logger.info("No API Key provided in args or env. Attempting to retrieve from database (admin user)...")
         # Ensure we are in the project root context for DB access if possible
         # (Assuming script is run from project root or backend folder)
         try:
             db_key = get_api_key_from_db("admin")
             if db_key:
-                print(f"Found API key for user 'admin' in database.")
+                logger.info("Found API key for user 'admin' in database.")
                 api_key = db_key
         except Exception as e:
-            print(f"Failed to retrieve key from DB: {e}")
-            
+            logger.error("Failed to retrieve key from DB: %s", e)
+
     if not api_key:
-        print("Error: API Key is required. Set MOONSHOT_API_KEY env var, pass --api_key, or configure 'admin' user with key in DB.")
+        logger.error("API Key is required. Set MOONSHOT_API_KEY env var, pass --api_key, or configure 'admin' user with key in DB.")
         sys.exit(1)
         
     translate_file(args.input_path, api_key)

@@ -1,5 +1,27 @@
+# 阶段 4.2 批次 G：双服务拆分——应用容器 + 独立官方 mariadb 容器
+# 数据库数据持久化在 named volume（db_data），首次启动自动执行 docker-init.sql 初始化账号。
 services:
-  gemini:
+  db:
+    image: ${MARIADB_IMAGE:-docker.m.daocloud.io/library/mariadb:11}
+    container_name: geniview-db
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MYSQL_PASSWORD:-123456}
+      - MARIADB_DATABASE=${MYSQL_DATABASE:-geniview}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./docker-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     image: gemini-project:${APP_IMAGE_TAG:-latest}
     container_name: gemini-server
     platform: ${DOCKER_PLATFORM:-linux/amd64}
@@ -8,11 +30,16 @@ services:
     volumes:
       - ../data:/app/data
       - ../result:/app/result
-      - ../mysql:/var/lib/mysql
     environment:
-      - MYSQL_HOST=127.0.0.1
+      - MYSQL_HOST=db
       - MYSQL_PORT=3306
       - MYSQL_USER=root
-      - MYSQL_PASSWORD=123456
-      - MYSQL_DATABASE=geniview
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-geniview}
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  db_data:

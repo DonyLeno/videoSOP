@@ -20,6 +20,7 @@ from backend.app_config import (
     MYSQL_PORT,
     MYSQL_USER,
 )
+from backend.app_crypto import decrypt_secret, encrypt_secret
 
 _DB_MODE = (os.environ.get("DB_MODE", "auto") or "auto").strip().lower()
 _SQLITE_PATH = os.environ.get("SQLITE_PATH") or os.path.join(os.getcwd(), "data", "geniview.sqlite3")
@@ -74,6 +75,7 @@ def verify_password(password: str, stored: Optional[str]) -> bool:
 def ensure_database() -> None:
     if _DB_MODE == "sqlite":
         _ensure_sqlite()
+        _ensure_org_tables()
         return
 
     if _DB_MODE in ("mysql", "auto"):
@@ -90,12 +92,21 @@ def ensure_database() -> None:
 
         if not ok:
             _ensure_sqlite()
+            _ensure_org_tables()
             return
 
         _ensure_mysql()
+        _ensure_org_tables()
         return
 
     raise RuntimeError("invalid_db_mode")
+
+
+def _ensure_org_tables() -> None:
+    """创建阶段 1 新表（项目/产线/成员/视频/任务/结果）。函数内导入避免循环依赖。"""
+    from backend.app_db_org import ensure_org_tables
+
+    ensure_org_tables()
 
 
 def _ensure_mysql() -> None:
@@ -257,7 +268,7 @@ def _row_to_user_dict(row: Any) -> Dict[str, object]:
         "status": row["status"] if isinstance(row, sqlite3.Row) else row[3],
         "created_at": created_at_text,
         "data_usage": int((row["data_usage"] if isinstance(row, sqlite3.Row) else row[5]) or 0),
-        "api_key": row["api_key"] if isinstance(row, sqlite3.Row) else row[6],
+        "api_key": decrypt_secret(row["api_key"] if isinstance(row, sqlite3.Row) else row[6]),
         "model": row["model"] if isinstance(row, sqlite3.Row) else row[7],
     }
 
@@ -361,6 +372,9 @@ def _row_to_history_dict(row: Any) -> Dict[str, object]:
         "token_thinking": row["token_thinking"] if isinstance(row, sqlite3.Row) else row[9],
         "token_total": row["token_total"] if isinstance(row, sqlite3.Row) else row[10],
         "created_at": created_at_text,
+        "project_id": row["project_id"] if isinstance(row, sqlite3.Row) else (row[12] if len(row) > 12 else None),
+        "line_id": row["line_id"] if isinstance(row, sqlite3.Row) else (row[13] if len(row) > 13 else None),
+        "task_id": row["task_id"] if isinstance(row, sqlite3.Row) else (row[14] if len(row) > 14 else None),
     }
 
 
@@ -376,6 +390,9 @@ def add_detection_history(
     token_output: Optional[int],
     token_thinking: Optional[int],
     token_total: Optional[int],
+    project_id: Optional[int] = None,
+    line_id: Optional[int] = None,
+    task_id: Optional[int] = None,
 ) -> bool:
     u = (username or "").strip()
     if not u:
@@ -387,8 +404,8 @@ def add_detection_history(
             cur.execute(
                 """
                 INSERT INTO detection_history
-                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at, project_id, line_id, task_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     u,
@@ -402,14 +419,17 @@ def add_detection_history(
                     token_thinking,
                     token_total,
                     created_at,
+                    project_id,
+                    line_id,
+                    task_id,
                 ),
             )
         else:
             cur.execute(
                 """
                 INSERT INTO detection_history
-                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, project_id, line_id, task_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     u,
@@ -422,6 +442,9 @@ def add_detection_history(
                     token_output,
                     token_thinking,
                     token_total,
+                    project_id,
+                    line_id,
+                    task_id,
                 ),
             )
         conn.commit()
@@ -434,8 +457,8 @@ def add_detection_history(
             cursor.execute(
                 """
                 INSERT INTO detection_history
-                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at, project_id, line_id, task_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     u,
@@ -449,14 +472,17 @@ def add_detection_history(
                     token_thinking,
                     token_total,
                     created_at,
+                    project_id,
+                    line_id,
+                    task_id,
                 ),
             )
         else:
             cursor.execute(
                 """
                 INSERT INTO detection_history
-                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, project_id, line_id, task_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     u,
@@ -469,6 +495,9 @@ def add_detection_history(
                     token_output,
                     token_thinking,
                     token_total,
+                    project_id,
+                    line_id,
+                    task_id,
                 ),
             )
         cursor.close()
@@ -488,6 +517,9 @@ def add_detection_history(
                 token_output,
                 token_thinking,
                 token_total,
+                project_id,
+                line_id,
+                task_id,
             )
         raise
 
@@ -502,7 +534,7 @@ def list_detection_history(username: str, limit: int = 200) -> List[Dict[str, ob
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at
+            SELECT id, username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at, project_id, line_id, task_id
             FROM detection_history
             WHERE username=?
             ORDER BY created_at DESC, id DESC
@@ -518,7 +550,7 @@ def list_detection_history(username: str, limit: int = 200) -> List[Dict[str, ob
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at
+            SELECT id, username, video_name, video_path, result_path, model, video_seconds, token_input, token_output, token_thinking, token_total, created_at, project_id, line_id, task_id
             FROM detection_history
             WHERE username=%s
             ORDER BY created_at DESC, id DESC
@@ -577,6 +609,7 @@ def create_user(
     u = (username or "").strip()
     if not u:
         return False
+    api_key_stored = encrypt_secret(api_key)
     if _DB_MODE == "sqlite" or (_DB_MODE == "auto" and not _mysql_available()):
         conn = _get_sqlite_connection()
         cur = conn.cursor()
@@ -586,7 +619,7 @@ def create_user(
             return False
         cur.execute(
             "INSERT INTO users (username, password_hash, role, email, status, api_key, model) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (u, password_hash, role, email, status, api_key, model),
+            (u, password_hash, role, email, status, api_key_stored, model),
         )
         conn.commit()
         conn.close()
@@ -601,7 +634,7 @@ def create_user(
             return False
         cursor.execute(
             "INSERT INTO users (username, password_hash, role, email, status, api_key, model) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (u, password_hash, role, email, status, api_key, model),
+            (u, password_hash, role, email, status, api_key_stored, model),
         )
         cursor.close()
         conn.close()
@@ -616,7 +649,7 @@ def create_user(
                 return False
             cur.execute(
                 "INSERT INTO users (username, password_hash, role, email, status, api_key, model) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (u, password_hash, role, email, status, api_key, model),
+                (u, password_hash, role, email, status, api_key_stored, model),
             )
             conn.commit()
             conn.close()
@@ -628,6 +661,9 @@ def update_user(username: str, fields: Dict[str, object]) -> bool:
     u = (username or "").strip()
     if not u:
         return False
+    fields = dict(fields or {})
+    if "api_key" in fields and fields.get("api_key"):
+        fields["api_key"] = encrypt_secret(str(fields["api_key"]))
     if _DB_MODE == "sqlite" or (_DB_MODE == "auto" and not _mysql_available()):
         allowed = {"email", "role", "status", "api_key", "model", "password_hash"}
         sets = []
@@ -699,7 +735,7 @@ def get_user_api_key_model(username: str) -> Tuple[Optional[str], Optional[str]]
         conn.close()
         if not row:
             return (None, None)
-        api_key = str(row["api_key"]).strip() if row["api_key"] is not None else None
+        api_key = decrypt_secret(str(row["api_key"]).strip()) if row["api_key"] is not None else None
         model = str(row["model"]).strip() if row["model"] is not None else None
         return (api_key or None, model or None)
     try:
@@ -715,6 +751,38 @@ def get_user_api_key_model(username: str) -> Tuple[Optional[str], Optional[str]]
         raise
     if not row:
         return (None, None)
-    api_key = str(row[0]).strip() if row[0] is not None else None
+    api_key = decrypt_secret(str(row[0]).strip()) if row[0] is not None else None
     model = str(row[1]).strip() if row[1] is not None else None
     return (api_key or None, model or None)
+
+
+def list_detection_history_for_migration(limit: int = 2000) -> List[Dict[str, object]]:
+    """迁移脚本用：跨用户列出检测历史，用于推断存量文件归属。"""
+    lim = max(1, min(int(limit or 2000), 5000))
+    if _DB_MODE == "sqlite" or (_DB_MODE == "auto" and not _mysql_available()):
+        conn = _get_sqlite_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, username, video_name, video_path, result_path, model, created_at "
+            "FROM detection_history ORDER BY id DESC LIMIT ?",
+            (lim,),
+        )
+        rows = cur.fetchall() or []
+        conn.close()
+        return [dict(r) for r in rows]
+    try:
+        conn = get_db_connection(use_database=True)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, username, video_name, video_path, result_path, model, created_at "
+            "FROM detection_history ORDER BY id DESC LIMIT %s",
+            (lim,),
+        )
+        rows = cursor.fetchall() or []
+        cursor.close()
+        conn.close()
+        return [dict(r) if not isinstance(r, dict) else r for r in rows]
+    except Exception:
+        if _DB_MODE == "auto":
+            return list_detection_history_for_migration(lim)
+        raise

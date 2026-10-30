@@ -17,3 +17,6 @@ data/*
 !data/SOP.md
 mysql/
 mysql_arm64/
+logs/
+.geniview_secret_key
+backups/

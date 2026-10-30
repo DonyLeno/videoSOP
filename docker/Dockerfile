@@ -1,5 +1,6 @@
-ARG MARIADB_BASE_IMAGE=mariadb:11
-FROM ${MARIADB_BASE_IMAGE}
+# 阶段 4.2 批次 G：纯应用镜像（数据库拆分为独立 mariadb 服务，见 docker-compose.yml）
+ARG PYTHON_BASE_IMAGE=docker.m.daocloud.io/library/python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
 ARG TARGETARCH
 ARG APP_VERSION=""
 
@@ -16,19 +17,17 @@ WORKDIR /app
 RUN if [ -f /etc/apt/sources.list ]; then sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list; fi && \
     if [ -f /etc/apt/sources.list.d/debian.sources ]; then sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; fi
 
+# libgl1/libglib2.0-0：OpenCV 运行依赖；xz-utils：ffmpeg 静态包解压
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     ca-certificates \
     curl \
     libgl1 \
     libglib2.0-0 \
-    python3 \
-    python3-pip \
     xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ln -sf /usr/bin/python3 /usr/local/bin/python && ln -sf /usr/bin/pip3 /usr/local/bin/pip
-
+# 静态 ffmpeg（官方源无 ffmpeg，静态包免依赖且跨架构可用）
 RUN set -eux; \
     case "${TARGETARCH:-}" in \
         amd64) ffmpeg_pkg="ffmpeg-release-amd64-static.tar.xz" ;; \
@@ -47,7 +46,7 @@ RUN set -eux; \
 
 COPY requirements.txt .
 
-RUN pip install --break-system-packages --no-cache-dir --retries 10 --timeout 300 -r requirements.txt
+RUN pip install --no-cache-dir --retries 10 --timeout 300 -r requirements.txt
 
 # Copy project files
 COPY . .

@@ -1,16 +1,17 @@
-<div class="topbar">
-  <div class="topbar-left">
-    <button class="menu-button" type="button" data-menu-button>☰</button>
-    <div class="page-title" data-i18n="review_title">结果查看</div>
-  </div>
-  <div class="topbar-right">
-    <select id="reviewResultSelect" class="form-control" style="width: 200px; display: none;" tabindex="-1">
-      <option value="" data-i18n="review_select_result">选择结果文件...</option>
-    </select>
-    <select id="reviewVideoSelect" class="form-control" style="width: 200px;">
-      <option value="" data-i18n="review_select_video">选择视频文件...</option>
-    </select>
-    <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="loadResultList()" data-i18n="refresh">刷新</button>
+<div class="panel review-toolbar-panel">
+  <div class="panel-body project-toolbar">
+    <div class="project-toolbar-title" data-i18n="project_tab_results">结果查看</div>
+    <div class="project-toolbar-actions">
+      <select id="reviewResultSelect" class="form-control" style="width: 220px;" tabindex="-1">
+        <option value="" data-i18n="review_select_result">选择结果文件...</option>
+      </select>
+      <select id="reviewVideoSelect" class="form-control" style="width: 200px;">
+        <option value="" data-i18n="review_select_video">选择视频文件...</option>
+      </select>
+      <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="loadResultList()" data-i18n="refresh">刷新</button>
+      <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="showRevisionHistory()" data-i18n="revision_history">修订历史</button>
+      <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="exportActionsCsv()" data-i18n="export_csv">导出 CSV</button>
+    </div>
   </div>
 </div>
 
@@ -39,6 +40,16 @@
     <div class="actions-list-header" id="actionsListHeader"></div>
     <div id="actionsList" class="actions-list"></div>
 </div>
+  </div>
+</div>
+
+<div id="vanvaPanel" class="panel" style="display: none; margin-top: 20px;">
+  <div class="panel-header" data-i18n="vanva_title">增值 / 非增值统计 (VA / NVA)</div>
+  <div class="panel-body vanva-body">
+    <div class="vanva-chart-wrap">
+      <canvas id="vanvaChart" width="240" height="240"></canvas>
+    </div>
+    <div class="vanva-legend" id="vanvaLegend"></div>
   </div>
 </div>
 
@@ -99,6 +110,16 @@
         </div>
         <div class="panel-body md-content" id="mdKaizen"></div>
     </div>
+</div>
+
+<div id="revisionModal" class="modal-overlay">
+  <div class="modal-content" style="max-width: 560px;">
+    <div class="modal-header" data-i18n="revision_history">修订历史</div>
+    <div id="revisionList" class="revision-list" style="max-height: 320px; overflow-y: auto; margin: 12px 0;"></div>
+    <div class="modal-actions">
+      <button class="btn-modal btn-cancel" id="btnCloseRevisions" data-i18n="cancel">取消</button>
+    </div>
+  </div>
 </div>
 
 <div id="contextMenu" class="context-menu">

@@ -11,10 +11,10 @@ APP_PORT="${PORT:-8000}"
 
 if ! lsof -nP -iTCP:${PROXY_PORT} -sTCP:LISTEN >/dev/null 2>&1; then
   if python3 -c "import proxy" >/dev/null 2>&1; then
-    nohup env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY python3 -m proxy --hostname "${PROXY_HOST}" --port "${PROXY_PORT}" >/tmp/genieview-proxy.log 2>&1 &
+    nohup env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY python3 -m proxy --hostname "${PROXY_HOST}" --port "${PROXY_PORT}" >/tmp/Geniview-proxy.log 2>&1 &
     sleep 1
   elif [ -x "$HOME/Library/Python/3.9/bin/proxy" ]; then
-    nohup env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY "$HOME/Library/Python/3.9/bin/proxy" --hostname "${PROXY_HOST}" --port "${PROXY_PORT}" >/tmp/genieview-proxy.log 2>&1 &
+    nohup env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY "$HOME/Library/Python/3.9/bin/proxy" --hostname "${PROXY_HOST}" --port "${PROXY_PORT}" >/tmp/Geniview-proxy.log 2>&1 &
     sleep 1
   else
     echo "未找到本地代理程序，请先安装 proxy.py: env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY python3 -m pip install --user proxy.py"

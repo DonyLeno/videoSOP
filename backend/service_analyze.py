@@ -11,13 +11,55 @@ from typing import Dict, List, Optional
 
 from backend.app_config import ANALYZE_CONCURRENCY
 from backend.app_db import add_detection_history, get_user_api_key_model
+from backend.app_db_org import (
+    TASK_STATUS_CANCELED,
+    TASK_STATUS_FAILED,
+    TASK_STATUS_PENDING,
+    TASK_STATUS_RUNNING,
+    TASK_STATUS_SUCCEEDED,
+    create_task,
+    ensure_default_scope,
+    fail_stale_tasks,
+    finish_task,
+    get_line_sop,
+    get_video_by_path,
+    mark_task_running,
+    register_analysis_result,
+    update_task_progress,
+)
+from backend.app_logging import get_logger
 from backend.service_media import _get_video_duration
 from backend.translate import translate_file
 
+logger = get_logger("analyze")
 
 USER_TASKS: Dict[str, Dict[str, object]] = {}
 USER_TASKS_LOCK = threading.Lock()
 ANALYZE_SEMAPHORE = threading.Semaphore(ANALYZE_CONCURRENCY)
+
+# 服务重启时被中断的任务 (username, task_id)，供 /api/task_status 兜底响应使用
+INTERRUPTED_TASKS: set = set()
+
+
+def recover_interrupted_tasks() -> int:
+    """服务启动时调用：把遗留的 pending/running 任务标记为 failed(interrupted)。
+
+    返回被中断任务数。之后用户轮询 task_status 会收到明确的失败原因，而非无限等待。
+    """
+    try:
+        stale = fail_stale_tasks()
+    except Exception:
+        logger.warning("恢复中断任务失败", exc_info=True)
+        return 0
+    for row in stale or []:
+        try:
+            INTERRUPTED_TASKS.add((str(row.get("username")), int(row.get("id"))))
+        except Exception:
+            continue
+    count = len(INTERRUPTED_TASKS)
+    if count:
+        logger.info("已将 %d 个重启前遗留任务标记为 failed(interrupted)", count)
+    return count
 
 
 def _iter_image_files(root: str) -> List[str]:
@@ -37,7 +79,7 @@ def _normalize_kimi_cli_model(model: str) -> str:
     if not text:
         return "kimi-2.5"
     lowered = text.lower()
-    if lowered in ("genieviewk2.5", "genieview-k2.5") or text == "GenieviewK2.5":
+    if lowered in ("Geniviewk2.5", "Geniview-k2.5") or text == "GeniviewK2.5":
         return "kimi-2.5"
     if lowered in ("qwen3.5", "qwen3.5-plus", "qwen-3.5", "qwen-3.5-plus"):
         return "qwen3.5-plus"
@@ -138,6 +180,12 @@ def _set_task_progress(username: str, phase: str, current: int, total: int) -> N
             return
         task["phase"] = phase
         task["progress"] = {"current": int(current), "total": int(total)}
+        task_id = task.get("task_id")
+    if task_id:
+        try:
+            update_task_progress(int(task_id), phase, int(current), int(total))
+        except Exception:
+            logger.warning("任务进度写库失败: task_id=%s", task_id, exc_info=True)
 
 
 def _append_task_log(username: str, message: str) -> None:
@@ -164,9 +212,31 @@ def background_analyze_task(
         ANALYZE_SEMAPHORE.release()
         return
 
+    task_id = task.get("task_id")
+    project_id = task.get("project_id")
+    line_id = task.get("line_id")
+    video_id = task.get("video_id")
+    if task_id:
+        try:
+            mark_task_running(int(task_id))
+        except Exception:
+            logger.warning("任务 started_at 写库失败: task_id=%s", task_id, exc_info=True)
+
     def log(msg: object) -> None:
         with USER_TASKS_LOCK:
             task["logs"].append(msg)
+
+    def _fail_task(error_msg: str) -> None:
+        """内存与 DB 同步置为失败。"""
+        with USER_TASKS_LOCK:
+            task["status"] = "failed"
+            task["error_msg"] = error_msg
+            task["phase"] = "failed"
+        if task_id:
+            try:
+                finish_task(int(task_id), TASK_STATUS_FAILED, error=error_msg)
+            except Exception:
+                logger.warning("任务失败状态写库失败: task_id=%s", task_id, exc_info=True)
 
     try:
         os.makedirs("result", exist_ok=True)
@@ -233,14 +303,10 @@ def background_analyze_task(
             image_paths = _iter_image_files(frames_dir)
             total_images = len(image_paths)
             if total_images == 0:
-                with USER_TASKS_LOCK:
-                    task["status"] = "failed"
-                    task["error_msg"] = "no_images_found"
+                _fail_task("no_images_found")
                 return
             if total_images > 1000:
-                with USER_TASKS_LOCK:
-                    task["status"] = "failed"
-                    task["error_msg"] = "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000"
+                _fail_task("超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000")
                 return
 
         max_retries = 3
@@ -385,10 +451,7 @@ def background_analyze_task(
                     except: pass
 
                 if attempt == max_retries:
-                    with USER_TASKS_LOCK:
-                        task["status"] = "failed"
-                        task["error_msg"] = f"Failed after {max_retries + 1} attempts: {str(attempt_err)}"
-                        task["phase"] = "failed"
+                    _fail_task(f"Failed after {max_retries + 1} attempts: {str(attempt_err)}")
                     return
                 
                 time.sleep(3)
@@ -405,9 +468,14 @@ def background_analyze_task(
                     _append_task_log(username, f"[INFO] Auto-translation completed.\n")
                 except Exception as e:
                     _append_task_log(username, f"[WARNING] Auto-translation failed: {str(e)}\n")
-            
+
+            token_info = {"token_input": None, "token_output": None, "token_thinking": None, "token_total": None}
             try:
                 token_info = _extract_tokens_from_md(result_path)
+            except Exception as e:
+                _append_task_log(username, f"[WARNING] token extraction failed: {str(e)}\n")
+
+            try:
                 video_duration = None
                 if output_video_path and os.path.exists(output_video_path):
                     video_duration = _get_video_duration(output_video_path)
@@ -425,9 +493,63 @@ def background_analyze_task(
                     token_output=token_info.get("token_output"),
                     token_thinking=token_info.get("token_thinking"),
                     token_total=token_info.get("token_total"),
+                    project_id=project_id,
+                    line_id=line_id,
+                    task_id=task_id,
                 )
             except Exception as e:
                 _append_task_log(username, f"[WARNING] history record failed: {str(e)}\n")
+
+            # 结果登记入库（幂等，md_path 已存在则跳过）
+            result_json_path = result_path[:-3] + ".json" if result_path.endswith(".md") else None
+            if result_json_path and not os.path.exists(result_json_path):
+                result_json_path = None
+            en_md_path = os.path.join("result", f"en_{os.path.basename(result_path)}")
+            if not os.path.exists(en_md_path):
+                en_md_path = None
+            stats_json = None
+            if result_json_path:
+                try:
+                    with open(result_json_path, "r", encoding="utf-8") as f:
+                        file_data = json.load(f)
+                    stats_obj = (file_data or {}).get("stats")
+                    if stats_obj is not None:
+                        stats_json = json.dumps(stats_obj, ensure_ascii=False)
+                except Exception:
+                    stats_json = None
+            try:
+                if project_id:
+                    register_analysis_result(
+                        project_id=int(project_id),
+                        md_path=result_path,
+                        line_id=int(line_id) if line_id else None,
+                        task_id=int(task_id) if task_id else None,
+                        video_id=int(video_id) if video_id else None,
+                        json_path=result_json_path,
+                        video_copy_path=output_video_path,
+                        en_md_path=en_md_path,
+                        stats_json=stats_json,
+                        created_by=username,
+                    )
+            except Exception as e:
+                _append_task_log(username, f"[WARNING] result registration failed: {str(e)}\n")
+
+            # 任务终态写库
+            if task_id:
+                try:
+                    finish_task(
+                        int(task_id),
+                        TASK_STATUS_SUCCEEDED,
+                        md_path=result_path,
+                        json_path=result_json_path,
+                        video_path=output_video_path,
+                        token_input=token_info.get("token_input"),
+                        token_output=token_info.get("token_output"),
+                        token_thinking=token_info.get("token_thinking"),
+                        token_total=token_info.get("token_total"),
+                    )
+                except Exception:
+                    logger.warning("任务成功状态写库失败: task_id=%s", task_id, exc_info=True)
             # Update status to completed after translation
             with USER_TASKS_LOCK:
                 task["result"] = final_response
@@ -435,40 +557,50 @@ def background_analyze_task(
                 task["phase"] = "completed"
 
     except Exception as e:
-        with USER_TASKS_LOCK:
-            task["status"] = "failed"
-            task["error_msg"] = str(e)
-            task["phase"] = "failed"
-            task["logs"].append(f"\nERROR:{str(e)}\n")
+        _fail_task(str(e))
+        _append_task_log(username, f"\nERROR:{str(e)}\n")
     finally:
         ANALYZE_SEMAPHORE.release()
 
 
-def handle_task_status(handler, user: Dict[str, object]) -> bool:
-    username = str(user.get("username") or "")
-    task = USER_TASKS.get(username)
-    if not task:
-        handler.send_json(200, {"status": "none"})
-        return True
-    with USER_TASKS_LOCK:
-        response = {
-            "status": task.get("status", "unknown"),
-            "logs": list(task.get("logs", [])),
-            "result": task.get("result"),
-            "error_msg": task.get("error_msg"),
-            "phase": task.get("phase"),
-            "progress": task.get("progress"),
-            "kind": task.get("kind"),
-            "model": task.get("model"),
-            "progress_unit": task.get("progress_unit"),
+def _task_row_to_response(row: Dict[str, object]) -> Dict[str, object]:
+    """把 DB 任务行转换为 /api/task_status 响应结构（与内存视图字段兼容）。"""
+    st = str(row.get("status") or "")
+    status_map = {
+        TASK_STATUS_PENDING: "running",
+        TASK_STATUS_RUNNING: "running",
+        TASK_STATUS_SUCCEEDED: "completed",
+        TASK_STATUS_FAILED: "failed",
+        TASK_STATUS_CANCELED: "failed",
+    }
+    result = None
+    if st == TASK_STATUS_SUCCEEDED:
+        result = {
+            "status": "success",
+            "json_path": row.get("result_md_path"),
+            "video_path": row.get("result_video_path"),
         }
-        decoded_logs = []
-        for log in response["logs"]:
-            if isinstance(log, bytes):
-                decoded_logs.append(log.decode("utf-8", errors="replace"))
-            else:
-                decoded_logs.append(str(log))
-        response["logs"] = decoded_logs
+    return {
+        "status": status_map.get(st, st),
+        "logs": [],
+        "result": result,
+        "error_msg": row.get("error"),
+        "phase": row.get("phase"),
+        "progress": {
+            "current": int(row.get("progress_current") or 0),
+            "total": int(row.get("progress_total") or 0),
+        },
+        "kind": "analyze",
+        "model": row.get("model"),
+        "progress_unit": row.get("progress_unit"),
+        "task_id": row.get("id"),
+    }
+
+
+def handle_task_status(handler, user: Dict[str, object]) -> bool:
+    from backend.service_events import _task_status_payload
+
+    response = _task_status_payload(str(user.get("username") or ""))
     handler.send_json(200, response)
     return True
 
@@ -596,19 +728,68 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
             return True
 
         sop_path = os.path.join("data", "SOP.md")
+
+        # 归属解析：优先请求显式携带，其次视频登记信息，最后默认项目
+        project_id = data.get("project_id") or None
+        line_id = data.get("line_id") or None
+        video_id = None
+        try:
+            vrow = get_video_by_path(video_path)
+            if vrow:
+                video_id = vrow.get("id")
+                project_id = project_id or vrow.get("project_id")
+                line_id = line_id or vrow.get("line_id")
+        except Exception:
+            logger.warning("查询视频归属失败: path=%s", video_path, exc_info=True)
+        if not project_id:
+            try:
+                scope = ensure_default_scope()
+                project_id = scope["project_id"]
+                line_id = line_id or scope["line_id"]
+            except Exception:
+                logger.warning("默认项目解析失败", exc_info=True)
+
+        # SOP 注入：产线级 SOP 优先（按 line_id），无则回退全局 data/SOP.md
         sop_content = ""
-        if os.path.exists(sop_path):
+        line_sop = None
+        if line_id:
+            try:
+                line_sop = get_line_sop(int(line_id))
+            except Exception:
+                logger.warning("读取产线 SOP 失败: line_id=%s", line_id, exc_info=True)
+        if line_sop is not None and str(line_sop).strip():
+            sop_content = str(line_sop)
+        elif os.path.exists(sop_path):
             try:
                 with open(sop_path, "r", encoding="utf-8") as f:
                     sop_content = f.read()
             except Exception:
                 sop_content = ""
 
+        # 重复提交检查（先于任务落库，避免 409 时留下孤儿任务行）
+        with USER_TASKS_LOCK:
+            if username in USER_TASKS and USER_TASKS[username]["status"] == "running":
+                handler.send_json(409, {"error": "task_already_running", "details": "当前已有正在进行的任务，请等待其完成"})
+                return True
+
+        # 任务持久化：DB 为权威状态源
+        task_id = None
+        try:
+            task_id = create_task(
+                username=str(username or ""),
+                model=normalized_model,
+                video_id=int(video_id) if video_id else None,
+                project_id=int(project_id) if project_id else None,
+                line_id=int(line_id) if line_id else None,
+                progress_total=image_count,
+                progress_unit=("request" if is_qwen else "frame"),
+            )
+        except Exception as e:
+            handler.send_json(500, {"error": "task_create_failed", "details": str(e)})
+            return True
+
         try:
             with USER_TASKS_LOCK:
-                if username in USER_TASKS and USER_TASKS[username]["status"] == "running":
-                    handler.send_json(409, {"error": "task_already_running", "details": "当前已有正在进行的任务，请等待其完成"})
-                    return True
                 USER_TASKS[username] = {
                     "status": "running",
                     "logs": [],
@@ -622,6 +803,10 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                     "progress_unit": ("request" if is_qwen else "frame"),
                     "prompt_path": prompt_path,
                     "ui_lang": ui_lang,
+                    "task_id": task_id,
+                    "project_id": int(project_id) if project_id else None,
+                    "line_id": int(line_id) if line_id else None,
+                    "video_id": int(video_id) if video_id else None,
                 }
             t = threading.Thread(
                 target=background_analyze_task,

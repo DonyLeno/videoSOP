@@ -3,6 +3,43 @@ import os
 import shutil
 import subprocess
 import urllib.parse
+from typing import Dict, List, Optional
+
+from backend.app_config import ALLOWED_UPLOAD_EXTS, MAX_UPLOAD_BYTES
+from backend.app_db_org import ensure_default_scope, get_station, list_videos_for_user, register_video
+from backend.app_logging import get_logger
+
+logger = get_logger("media")
+
+_VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv", ".webm")
+
+
+def _parse_int_param(params: Dict[str, List[str]], key: str) -> Optional[int]:
+    raw = (params.get(key) or [""])[0]
+    return int(raw) if str(raw).strip().lstrip("-").isdigit() else None
+
+
+def _resolve_scope(parsed_path=None) -> Dict[str, Optional[int]]:
+    """解析上传归属：query 携带 project_id/line_id/station_id 时用之，否则默认项目。"""
+    project_id = None
+    line_id = None
+    station_id = None
+    if parsed_path is not None:
+        try:
+            params = urllib.parse.parse_qs(parsed_path.query or "")
+        except Exception:
+            params = {}
+        project_id = _parse_int_param(params, "project_id")
+        line_id = _parse_int_param(params, "line_id")
+        station_id = _parse_int_param(params, "station_id")
+    if not project_id:
+        scope = ensure_default_scope()
+        return {
+            "project_id": scope["project_id"],
+            "line_id": line_id or scope["line_id"],
+            "station_id": station_id,
+        }
+    return {"project_id": project_id, "line_id": line_id, "station_id": station_id}
 
 
 def ensure_720p(video_path: str) -> None:
@@ -134,7 +171,7 @@ def _trim_video_to_180(video_path: str) -> bool:
     return False
 
 
-def handle_upload(handler) -> bool:
+def handle_upload(handler, user: Optional[Dict[str, object]] = None, parsed_path=None) -> bool:
     try:
         filename = handler.headers.get("X-Filename")
         if filename:
@@ -143,7 +180,42 @@ def handle_upload(handler) -> bool:
             handler.send_json(400, {"error": "missing_x_filename_header"})
             return True
         filename = os.path.basename(filename)
-        content_length = int(handler.headers["Content-Length"])
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            logger.warning("上传被拒绝（类型不允许）: filename=%s", filename)
+            handler.send_json(400, {"error": "invalid_file_type", "allowed_exts": sorted(ALLOWED_UPLOAD_EXTS)})
+            return True
+        content_length_header = handler.headers.get("Content-Length")
+        if not content_length_header:
+            handler.send_json(400, {"error": "missing_content_length"})
+            return True
+        content_length = int(content_length_header)
+        if content_length <= 0:
+            handler.send_json(400, {"error": "empty_body"})
+            return True
+        if content_length > MAX_UPLOAD_BYTES:
+            logger.warning(
+                "上传被拒绝（超过大小限制）: filename=%s, size=%d, limit=%d",
+                filename,
+                content_length,
+                MAX_UPLOAD_BYTES,
+            )
+            handler.send_json(413, {"error": "file_too_large", "max_mb": MAX_UPLOAD_BYTES // (1024 * 1024)})
+            return True
+        # 先校验工位归属，避免非法绑定落盘产生孤儿文件
+        scope = _resolve_scope(parsed_path)
+        station_id = scope.get("station_id")
+        if station_id:
+            station = get_station(int(station_id))
+            if not station or (
+                scope.get("line_id")
+                and int(station.get("line_id") or 0) != int(scope["line_id"])
+            ):
+                handler.send_json(
+                    400,
+                    {"error": "invalid_station", "details": "所选工位不属于当前产线"},
+                )
+                return True
         save_path = os.path.join("data", filename)
         os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
         with open(save_path, "wb") as f:
@@ -156,11 +228,28 @@ def handle_upload(handler) -> bool:
                 f.write(chunk)
                 bytes_read += len(chunk)
         if not _trim_video_to_180(save_path):
+            logger.warning("上传后裁剪失败: path=%s", save_path)
             handler.send_json(500, {"error": "trim_failed"})
             return True
+        # 视频资产登记入库（幂等：同名覆盖上传时更新元数据）
+        try:
+            register_video(
+                project_id=int(scope["project_id"]),
+                filename=filename,
+                stored_path=save_path,
+                line_id=int(scope["line_id"]) if scope.get("line_id") else None,
+                duration_sec=_get_video_duration(save_path),
+                size_bytes=os.path.getsize(save_path) if os.path.exists(save_path) else None,
+                uploaded_by=str((user or {}).get("username") or "") or None,
+                station_id=int(station_id) if station_id else None,
+            )
+        except Exception:
+            logger.warning("视频登记入库失败: path=%s", save_path, exc_info=True)
+        logger.info("上传成功: filename=%s, size=%d", filename, bytes_read)
         handler.send_json(200, {"status": "success", "path": save_path})
         return True
     except Exception as e:
+        logger.exception("上传处理异常")
         handler.send_json(500, {"error": "upload_failed", "details": str(e)})
         return True
 
@@ -250,18 +339,50 @@ def handle_extract_frames(handler, user: dict) -> bool:
         return True
 
 
-def handle_list_videos(handler) -> bool:
+def handle_list_videos(handler, user: Optional[Dict[str, object]] = None, parsed_path=None) -> bool:
+    """视频列表：优先走 videos 表（按用户可见项目过滤），DB 无记录时回退目录扫描。
+
+    query 支持 project_id / line_id 进一步过滤（作用域选择器传参）。
+    """
     try:
-        files = [f for f in os.listdir("data") if f.endswith((".mp4", ".mov", ".avi"))]
-        handler.send_response(200)
-        handler.send_header("Content-type", "application/json")
-        handler.end_headers()
-        handler.wfile.write(json.dumps({"files": files}).encode("utf-8"))
+        project_id = None
+        line_id = None
+        if parsed_path is not None:
+            try:
+                params = urllib.parse.parse_qs(parsed_path.query or "")
+            except Exception:
+                params = {}
+            project_id = _parse_int_param(params, "project_id")
+            line_id = _parse_int_param(params, "line_id")
+
+        rows: List[Dict[str, object]] = []
+        username = str((user or {}).get("username") or "")
+        role = str((user or {}).get("role") or "")
+        if username:
+            try:
+                rows = list_videos_for_user(username, role, project_id, line_id)
+            except Exception:
+                logger.warning("视频列表查库失败，回退目录扫描", exc_info=True)
+                rows = []
+        files: List[str] = []
+        for r in rows:
+            filename = str(r.get("filename") or "")
+            if not filename:
+                continue
+            if os.path.exists(os.path.join("data", filename)):
+                files.append(filename)
+        if files:
+            handler.send_json(200, {"files": files})
+            return True
+        legacy: List[str] = []
+        if os.path.exists("data"):
+            legacy = [f for f in os.listdir("data") if f.endswith(_VIDEO_EXTS)]
+        if legacy:
+            logger.warning("videos 表为空，视频列表回退目录扫描；建议运行 scripts/migrate_phase1.py")
+        handler.send_json(200, {"files": legacy})
         return True
     except Exception as e:
-        handler.send_response(500)
-        handler.end_headers()
-        handler.wfile.write(str(e).encode("utf-8"))
+        handler.send_json(500, {"error": str(e)})
         return True
 
 

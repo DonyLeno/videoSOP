@@ -281,7 +281,7 @@ def _generate_content_with_retry(
 
 def _normalize_model_name(model: str) -> str:
     text = str(model or "").strip()
-    if text in ("kimi-2.5", "GenieviewK2.5", "genieviewk2.5", "genieview-k2.5"):
+    if text in ("kimi-2.5", "GeniviewK2.5", "Geniviewk2.5", "Geniview-k2.5"):
         return "kimi-k2.5"
     if text == "gemini2.5flash":
         return "gemini-1.5-flash"
@@ -1786,7 +1786,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=os.getenv("GEMINI_MODEL", "kimi-2.5"),
-        help="Model name to use. Default: kimi-2.5 (GenieviewK2.5)。",
+        help="Model name to use. Default: kimi-2.5 (GeniviewK2.5)。",
     )
     parser.add_argument(
         "--api-key",
