@@ -1,0 +1,11 @@
+# 固定为本地已验证可运行的版本，避免 pip 在离线打包时反复回溯下载大包。
+google-genai==1.59.0
+numpy==1.26.4
+Pillow==11.3.0
+mysql-connector-python==9.5.0
+openai==2.16.0
+dashscope==1.25.13
+cryptography==41.0.7
+fastapi==0.123.5
+uvicorn==0.38.0
+opencv-python-headless==4.11.0.86

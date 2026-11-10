@@ -1,5 +1,5 @@
-import { applyLanguage, currentLang } from './i18n.js';
-import { applyTheme } from './core.js';
+import { applyLanguage, currentLang, t } from './i18n.js';
+import { applyTheme, authFetch, currentUser, notify } from './core.js';
 
 
 export function setupSettingsUI() {
@@ -21,6 +21,32 @@ export function setupSettingsUI() {
     langSelect.value = currentLang;
     langSelect.addEventListener('change', () => {
       applyLanguage(langSelect.value);
+    });
+  }
+
+  const dangerPanel = document.getElementById('settingsDangerPanel');
+  const btnClearAll = document.getElementById('btnClearAllContent');
+  if (dangerPanel && currentUser) {
+    dangerPanel.style.display = currentUser.role === 'admin' ? 'block' : 'none';
+  }
+  if (btnClearAll) {
+    btnClearAll.addEventListener('click', async () => {
+      if (!window.confirm(t('settings_clear_all_confirm'))) return;
+      btnClearAll.disabled = true;
+      try {
+        const res = await authFetch('/api/content/clear', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          notify(data.details || data.error || t('settings_clear_all_failed'));
+          return;
+        }
+        notify(t('settings_clear_all_done'));
+        setTimeout(() => window.location.reload(), 800);
+      } catch (e) {
+        notify(e.message || t('settings_clear_all_failed'));
+      } finally {
+        btnClearAll.disabled = false;
+      }
     });
   }
 }

@@ -7,13 +7,22 @@
 from typing import Callable, Dict, FrozenSet
 
 from backend.service_analyze import handle_analyze, handle_task_status
-from backend.service_media import handle_extract_frames, handle_list_videos, handle_upload, handle_video_info
+from backend.service_media import (
+    handle_clear_all_content,
+    handle_delete_video,
+    handle_ensure_playable,
+    handle_extract_frames,
+    handle_list_videos,
+    handle_upload,
+    handle_video_info,
+)
 from backend.service_org import (
     handle_add_member,
     handle_create_line,
     handle_create_project,
     handle_create_station,
     handle_delete_line,
+    handle_delete_project,
     handle_delete_station,
     handle_list_lines,
     handle_list_members,
@@ -78,6 +87,7 @@ POST_ROUTES: Dict[str, Callable] = {
     "/api/sop_content": lambda h, u, p: handle_set_sop_content(h, u),
     "/api/projects": lambda h, u, p: handle_create_project(h, u),
     "/api/projects/update": lambda h, u, p: handle_update_project(h, u),
+    "/api/projects/delete": lambda h, u, p: handle_delete_project(h, u),
     "/api/lines": lambda h, u, p: handle_create_line(h, u),
     "/api/lines/update": lambda h, u, p: handle_update_line(h, u),
     "/api/lines/delete": lambda h, u, p: handle_delete_line(h, u),
@@ -89,6 +99,9 @@ POST_ROUTES: Dict[str, Callable] = {
     "/api/update_result": lambda h, u, p: handle_update_result(h, u),
     "/api/result_revisions/restore": lambda h, u, p: handle_restore_revision(h, u),
     "/api/upload": lambda h, u, p: handle_upload(h, u, p),
+    "/api/content/clear": lambda h, u, p: handle_clear_all_content(h, u),
+    "/api/videos/delete": lambda h, u, p: handle_delete_video(h, u),
+    "/api/videos/ensure_playable": lambda h, u, p: handle_ensure_playable(h, u),
     "/api/extract_frames": lambda h, u, p: handle_extract_frames(h, u),
     "/api/analyze": lambda h, u, p: handle_analyze(h, u),
 }

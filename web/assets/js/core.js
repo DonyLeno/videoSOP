@@ -121,11 +121,13 @@ export function updateAdminUI() {
   const estimateBtn = document.getElementById('btnEstimateCost');
   const costDiv = document.getElementById('costEstimate');
   const createProjectBtn = document.getElementById('btnCreateProject');
+  const settingsDangerPanel = document.getElementById('settingsDangerPanel');
   const isAdmin = currentUser && currentUser.role === 'admin';
   if (navUsers) navUsers.style.display = isAdmin ? 'block' : 'none';
   if (viewUsers) viewUsers.style.display = isAdmin ? '' : 'none';
   if (navCalc) navCalc.style.display = isAdmin ? 'block' : 'none';
   if (createProjectBtn) createProjectBtn.style.display = isAdmin ? 'inline-block' : 'none';
+  if (settingsDangerPanel) settingsDangerPanel.style.display = isAdmin ? 'block' : 'none';
   if (estimateBtn) estimateBtn.style.display = 'none';
   if (!isAdmin && costDiv) costDiv.style.display = 'none';
   if (!isAdmin) {

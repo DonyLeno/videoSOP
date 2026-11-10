@@ -124,13 +124,56 @@
           </div>
           <div class="user-toolbar">
             <button class="btn btn-small" type="button" id="btnAddStation" data-i18n="station_add">添加工位</button>
+            <button class="btn btn-small" type="button" id="btnEditStation" disabled data-i18n="station_edit">编辑选中工位</button>
             <button class="btn btn-small btn-danger" type="button" id="btnDeleteStation" disabled data-i18n="station_delete">删除选中工位</button>
           </div>
         </div>
-        <div class="station-plan-hint" data-i18n="station_plan_hint">拖动工位可调整布局，点击工位可选中；上传视频会绑定到所选工位。</div>
+        <div class="station-plan-hint" data-i18n="station_plan_hint">拖动工位可调整布局，单击选中，双击（或点「编辑选中工位」）编辑名称、说明、SOP 并上传视频。</div>
         <div class="station-plan-canvas">
           <svg id="stationPlanSvg" viewBox="0 0 820 520" preserveAspectRatio="xMidYMid meet" role="img" data-i18n-alt="station_plan_title"></svg>
           <div id="stationPlanEmpty" class="station-plan-empty" data-i18n="station_plan_empty">该产线暂无工位，点击「添加工位」开始布置。</div>
+        </div>
+      </div>
+      <div id="stationEditModal" class="modal-overlay">
+        <div class="modal-content" style="width: 620px;">
+          <div class="modal-header" id="stationEditTitle" data-i18n="station_edit_title">编辑工位</div>
+          <div class="modal-form-group">
+            <label for="stationNameInput" data-i18n="station_name">工位名称</label>
+            <input type="text" id="stationNameInput" class="modal-input" maxlength="80">
+          </div>
+          <div class="modal-form-group">
+            <label for="stationDescInput" data-i18n="station_description">工位说明</label>
+            <textarea id="stationDescInput" class="modal-input" rows="3" maxlength="2000"></textarea>
+          </div>
+          <div class="modal-form-group">
+            <label for="stationSopInput" data-i18n="station_sop">工位 SOP</label>
+            <textarea id="stationSopInput" class="modal-input" rows="6" maxlength="20000"></textarea>
+          </div>
+          <div class="modal-form-group">
+            <label data-i18n="station_videos">已上传视频</label>
+            <div id="stationVideoList" class="station-video-list"></div>
+          </div>
+          <div class="modal-form-group" id="stationUploadGroup">
+            <label for="stationVideoInput" data-i18n="station_upload_video">上传视频到该工位</label>
+            <input type="file" id="stationVideoInput" class="modal-input" accept="video/*">
+            <div class="project-progress-track" style="margin-top: 8px;">
+              <div id="stationUploadProgressBar" class="project-progress-bar"></div>
+            </div>
+            <div id="stationUploadStatus" class="station-upload-status"></div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-modal btn-cancel" id="btnCancelStation" data-i18n="cancel">取消</button>
+            <button class="btn-modal btn-save" id="btnSaveStation" data-i18n="save">保存</button>
+          </div>
+        </div>
+      </div>
+      <div id="stationVideoPreview" class="modal-overlay">
+        <div class="modal-content" style="width: 760px;">
+          <div class="modal-header" id="stationVideoPreviewTitle" data-i18n="video_preview_title">视频预览</div>
+          <video id="stationVideoPlayer" controls playsinline style="width: 100%; border-radius: 8px; background: #000;"></video>
+          <div class="modal-actions">
+            <button class="btn-modal btn-cancel" id="btnCloseVideoPreview" data-i18n="close">关闭</button>
+          </div>
         </div>
       </div>
       <div class="line-grid" id="projectLinesGrid"></div>

@@ -1,0 +1,10 @@
+# 打包上下文已由 build_bundle.sh 过滤，这里只排除缓存类文件，保留 data/ 与 result/。
+__pycache__
+*.pyc
+*.pyo
+.git
+logs
+backups
+*.tar
+*.tar.gz
+.DS_Store

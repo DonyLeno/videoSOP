@@ -1,5 +1,5 @@
-// 产线内工位 2.5D 平面示意图：新增、拖动定位、删除。
-import { authFetch, notify } from './core.js';
+// 产线内工位 2.5D 平面示意图：新增、拖动定位、删除、双击编辑。
+import { authFetch, getToken, notify, withMediaToken } from './core.js';
 import { t } from './i18n.js';
 import { currentScope, setScopeStation } from './scope.js';
 
@@ -15,10 +15,12 @@ const FLOOR = 100;
 const LINE_SPAN = 72;
 
 let stationsCache = [];
+let videosCache = [];
 let canManage = false;
 let selectedId = null;
 let bound = false;
 let dragState = null;
+let editingId = null;
 
 function iso(x, y, z = 0) {
   return {
@@ -114,6 +116,8 @@ function draw() {
   if (empty) empty.style.display = stationsCache.length ? 'none' : 'block';
   const delBtn = document.getElementById('btnDeleteStation');
   if (delBtn) delBtn.disabled = !canManage || !selectedId;
+  const editBtn = document.getElementById('btnEditStation');
+  if (editBtn) editBtn.disabled = !canManage || !selectedId;
   const addBtn = document.getElementById('btnAddStation');
   if (addBtn) addBtn.disabled = !canManage;
 }
@@ -126,17 +130,25 @@ export function renderStationPlan(workspace) {
   panel.style.display = scoped ? 'block' : 'none';
   if (!scoped) {
     stationsCache = [];
+    videosCache = [];
     selectedId = null;
     svg.innerHTML = '';
     return;
   }
   stationsCache = Array.isArray(workspace?.stations) ? workspace.stations.slice() : [];
+  videosCache = Array.isArray(workspace?.videos) ? workspace.videos.slice() : [];
   canManage = Boolean(workspace?.can_manage);
   if (
     selectedId &&
     !stationsCache.some((station) => String(station.id) === String(selectedId))
   ) {
     selectedId = null;
+  }
+  if (
+    editingId &&
+    !stationsCache.some((station) => String(station.id) === String(editingId))
+  ) {
+    closeStationEdit();
   }
   if (!selectedId && currentScope.station_id) {
     const matched = stationsCache.some(
@@ -154,7 +166,10 @@ function syncUploadSelect() {
 }
 
 function selectStation(stationId) {
-  selectedId = stationId ? Number(stationId) : null;
+  const nextId = stationId ? Number(stationId) : null;
+  // 选中项未变化时不重绘，避免双击时第一次点击销毁节点导致 dblclick 丢失
+  if (String(nextId) === String(selectedId)) return;
+  selectedId = nextId;
   if (selectedId) setScopeStation(selectedId);
   else setScopeStation(null);
   syncUploadSelect();
@@ -206,7 +221,7 @@ function handlePointerDown(event) {
   if (!station) return;
   selectStation(stationId);
   if (!canManage) return;
-  event.preventDefault();
+  // 不在这里 preventDefault，避免浏览器抑制后续 mouse/dblclick 事件
   const start = localPoint(svg, event);
   dragState = {
     station,
@@ -311,6 +326,282 @@ async function deleteStation() {
   }
 }
 
+function formatVideoDuration(seconds) {
+  const total = Number(seconds);
+  if (!Number.isFinite(total) || total <= 0) return '-';
+  const m = Math.floor(total / 60);
+  const s = Math.floor(total % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatVideoSize(bytes) {
+  const size = Number(bytes);
+  if (!Number.isFinite(size) || size <= 0) return '-';
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatVideoTime(value) {
+  const text = String(value || '');
+  return text ? text.slice(0, 16) : '-';
+}
+
+function renderStationVideos(stationId) {
+  const list = document.getElementById('stationVideoList');
+  if (!list) return;
+  const videos = videosCache
+    .filter((video) => String(video.station_id) === String(stationId))
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  if (!videos.length) {
+    list.innerHTML = `<div class="station-video-empty">${escapeHtml(t('station_no_videos'))}</div>`;
+    return;
+  }
+  list.innerHTML = videos
+    .map(
+      (video) => `<div class="station-video-item" data-video-id="${video.id}"
+        data-video-path="${escapeHtml(video.stored_path || '')}"
+        data-video-name="${escapeHtml(video.filename)}"
+        title="${escapeHtml(t('station_video_play_hint'))}">
+        <span class="station-video-name">${escapeHtml(video.filename)}</span>
+        <span class="station-video-meta">${formatVideoDuration(video.duration_sec)} · ${formatVideoSize(video.size_bytes)} · ${escapeHtml(formatVideoTime(video.created_at))}</span>
+        ${canManage ? `<button type="button" class="station-video-delete" data-video-delete="${video.id}" data-video-name="${escapeHtml(video.filename)}">${escapeHtml(t('delete'))}</button>` : ''}
+      </div>`
+    )
+    .join('');
+}
+
+async function playStationVideo(videoId, path, name) {
+  const modal = document.getElementById('stationVideoPreview');
+  const player = document.getElementById('stationVideoPlayer');
+  if (!modal || !player) return;
+  const title = document.getElementById('stationVideoPreviewTitle');
+  if (title) title.textContent = name || t('video_preview_title');
+  modal.classList.add('open');
+  player.removeAttribute('src');
+  player.load();
+
+  let playPath = path || '';
+  if (videoId) {
+    try {
+      const res = await authFetch('/api/videos/ensure_playable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_id: videoId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.path) playPath = data.path;
+    } catch (e) {
+      console.warn('[station-video] ensure_playable failed', e);
+    }
+  }
+  if (!playPath) {
+    notify(t('station_video_play_failed'));
+    return;
+  }
+  player.src = withMediaToken('/' + String(playPath).replace(/^\/+/, ''));
+  const started = player.play();
+  if (started && typeof started.catch === 'function') started.catch(() => {});
+}
+
+function closeStationVideoPreview() {
+  const modal = document.getElementById('stationVideoPreview');
+  const player = document.getElementById('stationVideoPlayer');
+  if (player) {
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+  }
+  if (modal) modal.classList.remove('open');
+}
+
+async function deleteStationVideo(videoId, name) {
+  if (!canManage || !videoId) return;
+  if (!window.confirm(t('station_video_delete_confirm', { name: name || '' }))) return;
+  try {
+    const res = await authFetch('/api/videos/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_id: videoId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      notify(data.details || data.error || t('station_video_delete_failed'));
+      return;
+    }
+    notify(t('station_video_deleted'));
+    await window.refreshProjectWorkspace?.();
+    if (editingId) renderStationVideos(editingId);
+  } catch (e) {
+    console.error(e);
+    notify(t('network_error'));
+  }
+}
+
+function stationModal() {
+  return document.getElementById('stationEditModal');
+}
+
+function resetStationUploadUI() {
+  const bar = document.getElementById('stationUploadProgressBar');
+  if (bar) bar.style.width = '0%';
+  const status = document.getElementById('stationUploadStatus');
+  if (status) status.textContent = '';
+  const input = document.getElementById('stationVideoInput');
+  if (input) input.value = '';
+}
+
+function openStationEdit(stationId) {
+  const station = stationsCache.find((item) => String(item.id) === String(stationId));
+  const modal = stationModal();
+  if (!station || !modal) return;
+  editingId = Number(station.id);
+  const title = document.getElementById('stationEditTitle');
+  if (title) title.textContent = t('station_edit_title');
+  const nameInput = document.getElementById('stationNameInput');
+  const descInput = document.getElementById('stationDescInput');
+  const sopInput = document.getElementById('stationSopInput');
+  if (nameInput) {
+    nameInput.value = station.name || '';
+    nameInput.disabled = !canManage;
+  }
+  if (descInput) {
+    descInput.value = station.description || '';
+    descInput.disabled = !canManage;
+  }
+  if (sopInput) {
+    sopInput.value = station.sop_content || '';
+    sopInput.disabled = !canManage;
+  }
+  const uploadGroup = document.getElementById('stationUploadGroup');
+  if (uploadGroup) uploadGroup.style.display = canManage ? 'block' : 'none';
+  const saveBtn = document.getElementById('btnSaveStation');
+  if (saveBtn) saveBtn.style.display = canManage ? '' : 'none';
+  resetStationUploadUI();
+  renderStationVideos(editingId);
+  modal.classList.add('open');
+  if (canManage && nameInput) nameInput.focus();
+}
+
+function closeStationEdit() {
+  const modal = stationModal();
+  if (modal) modal.classList.remove('open');
+  editingId = null;
+  resetStationUploadUI();
+}
+
+async function saveStationEdit() {
+  if (!editingId || !canManage) return;
+  const nameInput = document.getElementById('stationNameInput');
+  const descInput = document.getElementById('stationDescInput');
+  const sopInput = document.getElementById('stationSopInput');
+  const name = (nameInput?.value || '').trim();
+  if (!name) {
+    notify(t('station_name_required'));
+    if (nameInput) nameInput.focus();
+    return;
+  }
+  const saveBtn = document.getElementById('btnSaveStation');
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const res = await authFetch('/api/stations/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        station_id: editingId,
+        name,
+        description: descInput?.value || '',
+        sop_content: sopInput?.value || ''
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      notify(data.details || data.detail || data.error || t('station_save_failed'));
+      return;
+    }
+    closeStationEdit();
+    notify(t('station_saved'));
+    await window.refreshProjectWorkspace?.();
+  } catch (e) {
+    console.error(e);
+    notify(t('network_error'));
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+function uploadStationVideo() {
+  if (!canManage || !editingId) return;
+  const input = document.getElementById('stationVideoInput');
+  const file = input && input.files ? input.files[0] : null;
+  if (!file) {
+    notify(t('station_upload_select_file'));
+    return;
+  }
+  const projectId = currentScope.project_id;
+  const lineId = currentScope.line_id;
+  if (!projectId || !lineId) {
+    notify(t('station_line_required'));
+    return;
+  }
+  const bar = document.getElementById('stationUploadProgressBar');
+  const status = document.getElementById('stationUploadStatus');
+  if (bar) bar.style.width = '0%';
+  if (status) status.textContent = t('upload_in_progress');
+  const xhr = new XMLHttpRequest();
+  const query =
+    '?project_id=' + encodeURIComponent(projectId) +
+    '&line_id=' + encodeURIComponent(lineId) +
+    '&station_id=' + encodeURIComponent(editingId);
+  xhr.open('POST', '/api/upload' + query, true);
+  const token = getToken();
+  if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+  xhr.upload.onprogress = (event) => {
+    if (event.lengthComputable && bar) {
+      bar.style.width = Math.round((event.loaded / event.total) * 100) + '%';
+    }
+  };
+  xhr.onerror = () => {
+    if (status) status.textContent = '';
+    notify(t('upload_failed', { error: t('network_error') }));
+  };
+  xhr.onreadystatechange = async () => {
+    if (xhr.readyState !== 4) return;
+    if (xhr.status === 200) {
+      if (bar) bar.style.width = '100%';
+      if (status) status.textContent = t('upload_success');
+      const inputEl = document.getElementById('stationVideoInput');
+      if (inputEl) inputEl.value = '';
+      notify(t('upload_success'));
+      await window.refreshProjectWorkspace?.();
+      if (editingId) renderStationVideos(editingId);
+      return;
+    }
+    let message = 'HTTP ' + xhr.status;
+    try {
+      const data = JSON.parse(xhr.responseText || '{}');
+      message = data.details || data.detail || data.error || message;
+    } catch (_) {
+      // 保持默认错误信息
+    }
+    if (status) status.textContent = '';
+    notify(t('upload_failed', { error: message }));
+  };
+  xhr.send(file);
+}
+
+function resolveStationIdAt(event) {
+  // 优先从事件目标向上查找；pointer capture 或覆盖层导致命不中时再按坐标兜底
+  const target = event.target;
+  let node = target && target.closest ? target.closest('[data-station-id]') : null;
+  if (!node && typeof document.elementFromPoint === 'function') {
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    node = el && el.closest ? el.closest('[data-station-id]') : null;
+  }
+  return node ? Number(node.dataset.stationId) : null;
+}
+
 export function setupStationPlanUI() {
   if (bound) return;
   bound = true;
@@ -325,16 +616,88 @@ export function setupStationPlanUI() {
       const node = event.target.closest ? event.target.closest('[data-station-id]') : null;
       if (node) selectStation(Number(node.dataset.stationId));
     });
+    svg.addEventListener('dblclick', (event) => {
+      const stationId = resolveStationIdAt(event);
+      if (!stationId) return;
+      event.preventDefault();
+      selectStation(stationId);
+      openStationEdit(stationId);
+    });
     svg.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       const node = event.target.closest ? event.target.closest('[data-station-id]') : null;
       if (!node) return;
       event.preventDefault();
-      selectStation(Number(node.dataset.stationId));
+      const stationId = Number(node.dataset.stationId);
+      selectStation(stationId);
+      if (event.key === 'Enter') openStationEdit(stationId);
     });
   }
   const addBtn = document.getElementById('btnAddStation');
   if (addBtn) addBtn.addEventListener('click', addStation);
+  const editBtn = document.getElementById('btnEditStation');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      if (!selectedId) {
+        notify(t('station_select_required'));
+        return;
+      }
+      openStationEdit(selectedId);
+    });
+  }
   const delBtn = document.getElementById('btnDeleteStation');
   if (delBtn) delBtn.addEventListener('click', deleteStation);
+
+  const modal = stationModal();
+  if (modal) {
+    // 挂到 body，避免被产线面板的层叠上下文裁剪
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) closeStationEdit();
+    });
+  }
+  const cancelBtn = document.getElementById('btnCancelStation');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeStationEdit);
+  const saveBtn = document.getElementById('btnSaveStation');
+  if (saveBtn) saveBtn.addEventListener('click', saveStationEdit);
+  const fileInput = document.getElementById('stationVideoInput');
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length) uploadStationVideo();
+    });
+  }
+  const videoList = document.getElementById('stationVideoList');
+  if (videoList) {
+    videoList.addEventListener('dblclick', (event) => {
+      if (event.target.closest('.station-video-delete')) return;
+      const item = event.target.closest('.station-video-item');
+      if (!item) return;
+      playStationVideo(Number(item.dataset.videoId), item.dataset.videoPath, item.dataset.videoName);
+    });
+    videoList.addEventListener('click', (event) => {
+      const delBtn = event.target.closest('[data-video-delete]');
+      if (!delBtn) return;
+      event.stopPropagation();
+      deleteStationVideo(Number(delBtn.dataset.videoDelete), delBtn.dataset.videoName);
+    });
+  }
+  const previewModal = document.getElementById('stationVideoPreview');
+  if (previewModal) {
+    if (previewModal.parentElement !== document.body) document.body.appendChild(previewModal);
+    previewModal.addEventListener('click', (event) => {
+      if (event.target === previewModal) closeStationVideoPreview();
+    });
+  }
+  const closePreviewBtn = document.getElementById('btnCloseVideoPreview');
+  if (closePreviewBtn) closePreviewBtn.addEventListener('click', closeStationVideoPreview);
+  document.addEventListener('keydown', (event) => {
+    const el = stationModal();
+    if (event.key !== 'Escape') return;
+    const preview = document.getElementById('stationVideoPreview');
+    if (preview && preview.classList.contains('open')) {
+      closeStationVideoPreview();
+      return;
+    }
+    if (el && el.classList.contains('open')) closeStationEdit();
+  });
 }

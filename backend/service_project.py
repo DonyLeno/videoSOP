@@ -244,6 +244,8 @@ def handle_project_workspace(handler, user: Dict[str, object], parsed_path) -> b
                     "line_id": station.get("line_id"),
                     "code": station.get("code"),
                     "name": station.get("name"),
+                    "description": station.get("description") or "",
+                    "sop_content": station.get("sop_content") or "",
                     "pos_x": float(station.get("pos_x") or 0),
                     "pos_y": float(station.get("pos_y") or 0),
                     "rotation": float(station.get("rotation") or 0),

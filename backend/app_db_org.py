@@ -81,6 +81,8 @@ _MYSQL_TABLES = [
         line_id INT NOT NULL,
         code VARCHAR(32) NOT NULL,
         name VARCHAR(128) NOT NULL,
+        description TEXT,
+        sop_content MEDIUMTEXT,
         pos_x DOUBLE NOT NULL DEFAULT 0,
         pos_y DOUBLE NOT NULL DEFAULT 0,
         rotation DOUBLE NOT NULL DEFAULT 0,
@@ -207,6 +209,8 @@ _SQLITE_TABLES = [
         line_id INTEGER NOT NULL,
         code TEXT NOT NULL,
         name TEXT NOT NULL,
+        description TEXT,
+        sop_content TEXT,
         pos_x REAL NOT NULL DEFAULT 0,
         pos_y REAL NOT NULL DEFAULT 0,
         rotation REAL NOT NULL DEFAULT 0,
@@ -338,6 +342,28 @@ def _ensure_video_station_column(cur, mysql: bool) -> None:
             cur.execute("ALTER TABLE videos ADD COLUMN station_id INTEGER")
 
 
+def _ensure_station_edit_columns(cur, mysql: bool) -> None:
+    """为既有 line_stations 表补充说明与 SOP 字段，兼容旧库。"""
+    if mysql:
+        cur.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='line_stations'",
+            (MYSQL_DATABASE,),
+        )
+        existing = {str(row[0]).lower() for row in cur.fetchall()}
+        if "description" not in existing:
+            cur.execute("ALTER TABLE line_stations ADD COLUMN description TEXT NULL")
+        if "sop_content" not in existing:
+            cur.execute("ALTER TABLE line_stations ADD COLUMN sop_content MEDIUMTEXT NULL")
+    else:
+        cur.execute("PRAGMA table_info(line_stations)")
+        existing = {str(row[1]).lower() for row in cur.fetchall()}
+        if "description" not in existing:
+            cur.execute("ALTER TABLE line_stations ADD COLUMN description TEXT")
+        if "sop_content" not in existing:
+            cur.execute("ALTER TABLE line_stations ADD COLUMN sop_content TEXT")
+
+
 def ensure_org_tables() -> None:
     """创建阶段 1 全部新表；由 app_db.ensure_database() 调用。"""
     if _use_mysql():
@@ -348,6 +374,7 @@ def ensure_org_tables() -> None:
                 cur.execute(ddl)
             _ensure_detection_history_columns(cur, mysql=True)
             _ensure_video_station_column(cur, mysql=True)
+            _ensure_station_edit_columns(cur, mysql=True)
             conn.commit()
             cur.close()
         finally:
@@ -360,6 +387,7 @@ def ensure_org_tables() -> None:
             cur.execute(ddl)
         _ensure_detection_history_columns(cur, mysql=False)
         _ensure_video_station_column(cur, mysql=False)
+        _ensure_station_edit_columns(cur, mysql=False)
         conn.commit()
         cur.close()
     finally:
@@ -621,6 +649,65 @@ def count_line_references(line_id: int) -> Dict[str, int]:
     return counts
 
 
+def count_project_references(project_id: int) -> Dict[str, int]:
+    """统计项目被引用的数据量，用于删除前的占用校验。"""
+    counts: Dict[str, int] = {}
+    for key, sql in (
+        ("video_count", "SELECT COUNT(*) AS c FROM videos WHERE project_id=?"),
+        ("task_count", "SELECT COUNT(*) AS c FROM tasks WHERE project_id=?"),
+        ("result_count", "SELECT COUNT(*) AS c FROM analysis_results WHERE project_id=?"),
+        ("line_count", "SELECT COUNT(*) AS c FROM production_lines WHERE project_id=?"),
+    ):
+        row = _exec(sql, (project_id,), fetch="one") or {}
+        counts[key] = _to_int(row.get("c")) or 0
+    return counts
+
+
+def delete_project(project_id: int) -> Dict[str, int]:
+    """删除项目及其产线、工位与成员关系；调用方需先确认项目下无视频/任务/结果。"""
+    if not project_id:
+        return {}
+    counts: Dict[str, int] = {}
+    counts["stations"] = int(
+        _exec(
+            "DELETE FROM line_stations WHERE line_id IN "
+            "(SELECT id FROM production_lines WHERE project_id=?)",
+            (project_id,),
+            commit=True,
+            want_rowcount=True,
+        )
+        or 0
+    )
+    counts["lines"] = int(
+        _exec(
+            "DELETE FROM production_lines WHERE project_id=?",
+            (project_id,),
+            commit=True,
+            want_rowcount=True,
+        )
+        or 0
+    )
+    counts["members"] = int(
+        _exec(
+            "DELETE FROM project_members WHERE project_id=?",
+            (project_id,),
+            commit=True,
+            want_rowcount=True,
+        )
+        or 0
+    )
+    counts["projects"] = int(
+        _exec(
+            "DELETE FROM projects WHERE id=?",
+            (project_id,),
+            commit=True,
+            want_rowcount=True,
+        )
+        or 0
+    )
+    return counts
+
+
 # ---------------------------------------------------------------------------
 # 工位（产线内的 2.5D 平面布局）
 # ---------------------------------------------------------------------------
@@ -753,6 +840,8 @@ def update_station(
     pos_x: Optional[float] = None,
     pos_y: Optional[float] = None,
     rotation: Optional[float] = None,
+    description: Optional[str] = None,
+    sop_content: Optional[str] = None,
 ) -> bool:
     sets: List[str] = []
     params: List[object] = []
@@ -768,6 +857,12 @@ def update_station(
     if rotation is not None:
         sets.append("rotation=?")
         params.append(float(rotation))
+    if description is not None:
+        sets.append("description=?")
+        params.append(str(description))
+    if sop_content is not None:
+        sets.append("sop_content=?")
+        params.append(str(sop_content))
     if not sets:
         return True
     params.append(station_id)
@@ -952,6 +1047,26 @@ def get_video_by_path(stored_path: str) -> Optional[Dict[str, object]]:
 
 def get_video(video_id: int) -> Optional[Dict[str, object]]:
     return _exec("SELECT * FROM videos WHERE id=?", (video_id,), fetch="one")
+
+
+def delete_video(video_id: int) -> bool:
+    """删除单条视频登记记录（不处理磁盘文件）。"""
+    if not video_id:
+        return False
+    _exec("DELETE FROM videos WHERE id=?", (video_id,), commit=True)
+    return True
+
+
+def clear_all_content() -> Dict[str, int]:
+    """清空全部内容数据（结果版本、分析结果、任务、视频），返回各表删除行数。"""
+    counts: Dict[str, int] = {}
+    for table in ("result_revisions", "analysis_results", "tasks", "videos"):
+        try:
+            counts[table] = int(_exec(f"DELETE FROM {table}", commit=True, want_rowcount=True) or 0)
+        except Exception:
+            logger.warning("清空数据表失败: %s", table, exc_info=True)
+            counts[table] = 0
+    return counts
 
 
 def list_videos_for_user(

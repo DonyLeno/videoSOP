@@ -141,6 +141,8 @@ export function renderProjectsPage() {
   root.innerHTML = projectsCache
     .map((project) => {
       const archived = project.status === 'archived';
+      const canDelete =
+        currentUser && (currentUser.role === 'admin' || project.my_role === 'owner');
       return `<article class="project-card ${archived ? 'is-archived' : ''}" data-project-id="${project.id}">
         <div class="project-card-top">
           <span class="project-card-code">${escapeHtml(project.code || t('project_no_code'))}</span>
@@ -150,13 +152,22 @@ export function renderProjectsPage() {
         <div class="project-card-desc">${escapeHtml(project.description || t('project_no_desc'))}</div>
         <div class="project-card-footer">
           <span class="project-card-role">${escapeHtml(t('project_my_role'))}: ${escapeHtml(project.my_role || (currentUser && currentUser.role === 'admin' ? t('role_admin') : '-'))}</span>
-          <span class="btn btn-small ${archived ? '' : 'btn-primary'}">${t('project_enter')}</span>
+          <div class="project-card-actions">
+            ${canDelete ? `<button class="btn btn-small btn-danger" type="button" data-project-delete="${project.id}">${t('project_delete')}</button>` : ''}
+            <span class="btn btn-small ${archived ? '' : 'btn-primary'}">${t('project_enter')}</span>
+          </div>
         </div>
       </article>`;
     })
     .join('');
   root.querySelectorAll('[data-project-id]').forEach((el) => {
     el.addEventListener('click', () => openProject(Number(el.dataset.projectId)));
+  });
+  root.querySelectorAll('[data-project-delete]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      deleteProject(Number(btn.dataset.projectDelete));
+    });
   });
 }
 
@@ -546,6 +557,33 @@ export async function exitLine() {
   setScopeLine(null);
   await loadProjectWorkspace();
   switchProjectTab('lines');
+}
+
+async function deleteProject(projectId) {
+  const project = projectsCache.find((item) => String(item.id) === String(projectId));
+  if (!project) return;
+  if (!window.confirm(t('project_delete_confirm', { name: project.name || '' }))) return;
+  try {
+    const res = await authFetch('/api/projects/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: Number(projectId) })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      notify(data.details || data.error || t('project_delete_failed'));
+      return;
+    }
+    if (String(activeProjectId) === String(projectId)) {
+      openProjectsPage();
+    } else {
+      await loadProjectSidebar();
+    }
+    notify(t('project_deleted'));
+  } catch (e) {
+    console.error(e);
+    notify(t('network_error'));
+  }
 }
 
 async function deleteLine(lineId) {

@@ -18,11 +18,13 @@ from backend.app_db_org import (
     add_project_member,
     can_manage_project,
     count_line_references,
+    count_project_references,
     count_station_videos,
     create_default_stations,
     create_production_line,
     create_project,
     delete_production_line,
+    delete_project,
     delete_station,
     get_member_role,
     get_production_line,
@@ -160,6 +162,53 @@ def handle_update_project(handler, user: Dict[str, object]) -> bool:
         handler.send_json(500, {"error": "db_error", "details": str(e)})
         return True
     handler.send_json(200, {"status": "success"})
+    return True
+
+
+def handle_delete_project(handler, user: Dict[str, object]) -> bool:
+    """POST /api/projects/delete —— 删除项目；项目下仍有视频/任务/结果时拒绝。"""
+    data = _read_json_body(handler)
+    try:
+        pid = int(data.get("project_id") or data.get("id") or 0)
+    except Exception:
+        pid = 0
+    if not pid:
+        handler.send_json(400, {"error": "missing_project_id"})
+        return True
+    if not get_project(pid):
+        handler.send_json(404, {"error": "project_not_found"})
+        return True
+    if not can_manage_project(user, pid):
+        handler.send_json(403, {"error": "forbidden", "details": "仅管理员或项目 owner 可删除项目"})
+        return True
+    try:
+        refs = count_project_references(pid)
+    except Exception as e:
+        logger.exception("项目占用统计失败: pid=%s", pid)
+        handler.send_json(500, {"error": "db_error", "details": str(e)})
+        return True
+    blocking = {
+        "video_count": refs.get("video_count", 0),
+        "task_count": refs.get("task_count", 0),
+        "result_count": refs.get("result_count", 0),
+    }
+    if any(int(v or 0) > 0 for v in blocking.values()):
+        handler.send_json(
+            409,
+            {
+                "error": "project_in_use",
+                "details": "项目下仍有视频、任务或结果，请先在设置页清理内容后再删除",
+                "references": refs,
+            },
+        )
+        return True
+    try:
+        counts = delete_project(pid)
+    except Exception as e:
+        logger.exception("删除项目失败: pid=%s", pid)
+        handler.send_json(500, {"error": "db_error", "details": str(e)})
+        return True
+    handler.send_json(200, {"status": "success", "deleted": counts})
     return True
 
 
@@ -401,7 +450,7 @@ def handle_create_station(handler, user: Dict[str, object]) -> bool:
 
 
 def handle_update_station(handler, user: Dict[str, object]) -> bool:
-    """POST /api/stations/update —— 修改工位名称或平面坐标（拖动后保存）。"""
+    """POST /api/stations/update —— 修改工位名称、说明、SOP 或平面坐标。"""
     data = _read_json_body(handler)
     try:
         station_id = int(data.get("station_id") or data.get("id") or 0)
@@ -415,12 +464,23 @@ def handle_update_station(handler, user: Dict[str, object]) -> bool:
         handler.send_json(*error)
         return True
     if not can_manage_project(user, project_id):
-        handler.send_json(403, {"error": "forbidden", "details": "仅管理员或项目 owner 可调整工位"})
+        handler.send_json(403, {"error": "forbidden", "details": "仅管理员或项目 owner 可编辑工位"})
         return True
     name = data.get("name")
     pos_x = data.get("pos_x")
     pos_y = data.get("pos_y")
     rotation = data.get("rotation")
+    description = data.get("description")
+    sop_content = data.get("sop_content")
+    if name is not None and not str(name).strip():
+        handler.send_json(400, {"error": "empty_station_name"})
+        return True
+    if description is not None and len(str(description)) > 2000:
+        handler.send_json(400, {"error": "station_description_too_long", "max_length": 2000})
+        return True
+    if sop_content is not None and len(str(sop_content)) > 20000:
+        handler.send_json(400, {"error": "station_sop_too_long", "max_length": 20000})
+        return True
     try:
         if pos_x is not None:
             pos_x = min(max(float(pos_x), 0.0), 100.0)
@@ -434,6 +494,8 @@ def handle_update_station(handler, user: Dict[str, object]) -> bool:
             pos_x=pos_x,
             pos_y=pos_y,
             rotation=rotation,
+            description=str(description) if description is not None else None,
+            sop_content=str(sop_content) if sop_content is not None else None,
         )
     except Exception as e:
         logger.exception("更新工位失败: station_id=%s", station_id)

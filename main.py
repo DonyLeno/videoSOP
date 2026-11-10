@@ -9,12 +9,13 @@ import time
 import base64
 import io
 import mimetypes
+import subprocess
 from typing import Any, Dict, List, Optional, TypedDict, Tuple, Union, Callable
 
 import cv2  # type: ignore
 from PIL import Image as PILImage
 from google import genai
-from google.genai import errors
+from google.genai import errors, types
 
 try:
     import openai
@@ -33,28 +34,41 @@ def _truncate_text(value: Any, limit: int = 2000) -> str:
     return text[:limit] + f"...(truncated,len={len(text)})"
 
 
-def _dashscope_base_url() -> str:
+def _dashscope_base_url(api_key: str = "") -> str:
     base = os.getenv("DASHSCOPE_API_BASE") or os.getenv("QWEN_API_BASE") or ""
     if base:
         if "compatible-mode/v1" in base:
             return base.replace("compatible-mode/v1", "api/v1")
         return base
+    # Token Plan 专属 Key（sk-sp- 开头）只能访问 Token Plan 专属域名
+    if str(api_key or "").strip().startswith("sk-sp-"):
+        return "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
     return "https://dashscope.aliyuncs.com/api/v1"
 
 
-def _dashscope_content_to_text(content: Any) -> str:
+def _dashscope_content_to_text(content: Any, strip: bool = True) -> str:
+    """提取 DashScope 返回的文本。
+
+    strip=False 用于流式分片：分片里的换行/缩进就是 Markdown 结构，不能去掉。
+    """
+    def _clean(value: Any) -> str:
+        text = str(value or "")
+        return text.strip() if strip else text
+
     if isinstance(content, str):
-        return content
+        return _clean(content) if strip else content
     if isinstance(content, list):
         parts: List[str] = []
         for item in content:
             if isinstance(item, dict) and "text" in item:
-                parts.append(str(item.get("text") or "").strip())
+                parts.append(_clean(item.get("text")))
             elif isinstance(item, str):
-                parts.append(item.strip())
-        return "\n".join([p for p in parts if p])
+                parts.append(_clean(item))
+        if strip:
+            return "\n".join([p for p in parts if p])
+        return "".join(parts)
     if isinstance(content, dict) and "text" in content:
-        return str(content.get("text") or "").strip()
+        return _clean(content.get("text"))
     return str(content or "")
 
 
@@ -289,8 +303,16 @@ def _normalize_model_name(model: str) -> str:
         return "gemini-2.0-flash"
     lowered = text.lower()
     if lowered in ("qwen3.5", "qwen3.5-plus", "qwen-3.5", "qwen-3.5-plus"):
-        return "qwen3.5-plus"
+        # 3.5-plus 在 Token Plan 中不存在，统一上移到当前主力模型
+        return "qwen3.8-max"
     return text or model
+
+
+_QWEN_MODEL_PREFIXES = ("qwen3", "qwen-3")
+
+
+def _is_qwen_model_name(model: str) -> bool:
+    return str(model or "").strip().lower().startswith(_QWEN_MODEL_PREFIXES)
 
 
 class DetectedAction(TypedDict):
@@ -427,7 +449,7 @@ def _is_file_state(value: Any, name: str) -> bool:
 
 def wait_until_file_active(client: genai.Client, file_name: str) -> Any:
     if not file_name:
-        raise SystemExit("Upload returned empty file name.")
+        raise RuntimeError("Upload returned empty file name.")
     last_info = None
     last_state = None
     for _ in range(90):
@@ -448,12 +470,12 @@ def wait_until_file_active(client: genai.Client, file_name: str) -> Any:
                 ),
                 flush=True,
             )
-        if _is_file_state(last_info.state, "ACTIVE"):
+        if _is_file_state(getattr(last_info, "state", None), "ACTIVE"):
             return last_info
-        if _is_file_state(last_info.state, "FAILED"):
-            raise SystemExit(f"File processing failed: {last_info.error}")
+        if _is_file_state(getattr(last_info, "state", None), "FAILED"):
+            raise RuntimeError(f"File processing failed: {getattr(last_info, 'error', None)}")
         time.sleep(1.0)
-    raise SystemExit(f"File not ACTIVE after waiting: {last_info}")
+    raise RuntimeError(f"File not ACTIVE after waiting: {last_info}")
 
 
 def parse_actions(value: Any) -> List[DetectedAction]:
@@ -670,6 +692,98 @@ def _prepare_video_for_qwen(video_path: str, max_bytes: int) -> Tuple[str, str, 
     return compressed_path, "video/mp4", compressed_size, compressed_path
 
 
+def _qwen_input_dir() -> str:
+    path = os.path.join("result", "qwen_input")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _remux_to_mp4(video_path: str) -> Optional[str]:
+    """把非 mp4 容器（如 .mov）转封装为 mp4，供 Qwen data URI 直传。"""
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_path = os.path.join(_qwen_input_dir(), f"{base}_remux.mp4")
+    if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+        return out_path
+    variants = [
+        ["-c", "copy"],
+        ["-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-c:a", "aac"],
+    ]
+    for extra in variants:
+        res = subprocess.run(
+            ["ffmpeg", "-y", "-i", video_path, *extra, "-movflags", "+faststart", out_path],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0 and os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+            return out_path
+        if os.path.exists(out_path):
+            os.remove(out_path)
+    return None
+
+
+def _compress_for_qwen(video_path: str, max_bytes: int) -> Optional[str]:
+    """按体积上限分级压缩视频（降分辨率 + CRF），返回压缩后路径。"""
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_path = os.path.join(_qwen_input_dir(), f"{base}_inline.mp4")
+    plans = [(720, 28), (540, 30), (480, 32), (360, 34)]
+    for height, crf in plans:
+        res = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                video_path,
+                "-vf",
+                f"scale=-2:{height}",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                str(crf),
+                "-an",
+                "-movflags",
+                "+faststart",
+                out_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode != 0 or not os.path.isfile(out_path):
+            continue
+        if os.path.getsize(out_path) <= max_bytes:
+            return out_path
+    if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+        return out_path
+    return None
+
+
+def _qwen_video_data_uri(video_path: str, max_bytes: int) -> Tuple[str, int, str]:
+    """把本地视频转成 data URI（Token Plan Key 无法使用 file:// 上传）。
+
+    返回 (data_uri, 实际字节数, 实际使用的源文件)。
+    """
+    src = video_path
+    if os.path.splitext(video_path)[1].lower() not in (".mp4", ".webm"):
+        remuxed = _remux_to_mp4(video_path)
+        if remuxed:
+            src = remuxed
+    size = os.path.getsize(src)
+    if size > max_bytes:
+        compressed = _compress_for_qwen(src, max_bytes)
+        if compressed:
+            src = compressed
+            size = os.path.getsize(src)
+    if size > max_bytes:
+        raise RuntimeError(
+            f"视频体积 {size} 字节超过 Qwen 内联上传上限 {max_bytes} 字节，请压缩或分段后再试。"
+        )
+    mime = "video/webm" if src.lower().endswith(".webm") else "video/mp4"
+    with open(src, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{encoded}", size, src
+
+
 def _iter_image_files(root: str) -> List[str]:
     exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
     files: List[str] = []
@@ -715,6 +829,143 @@ def load_frames_from_dir(frames_dir: str, max_frames: int = 1000) -> List[Any]:
         content_parts.append(img)
         content_parts.append(os.path.basename(path))
     return content_parts
+
+
+def _video_mime_type(video_path: str) -> str:
+    mime_type, _ = mimetypes.guess_type(video_path)
+    return mime_type or "video/mp4"
+
+
+def _prepare_gemini_video_contents(
+    client: genai.Client,
+    video_path: str,
+    prompt_text: str,
+    sample_fps: float,
+    frames_dir: Optional[str],
+) -> Tuple[List[Any], Optional[str]]:
+    """优先用 Files API 上传整段视频；失败时回退小视频内联或客户端抽帧。
+
+    返回 (contents, uploaded_file_name)，fileName 供调用方分析后删除。
+    """
+    try:
+        try:
+            video_bytes = os.path.getsize(video_path)
+        except Exception:
+            video_bytes = 0
+        print(
+            json.dumps(
+                {"event": "genai.files.upload.request", "video_path": video_path, "video_bytes": video_bytes},
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+        uploaded = client.files.upload(file=video_path)
+        info = wait_until_file_active(client, getattr(uploaded, "name", "") or "")
+        file_name = getattr(info, "name", None) or getattr(uploaded, "name", None)
+        file_uri = getattr(info, "uri", None) or getattr(uploaded, "uri", None)
+        mime_type = getattr(info, "mime_type", None) or _video_mime_type(video_path)
+        if not file_uri:
+            raise RuntimeError("gemini_file_uri_missing")
+        print(
+            json.dumps(
+                {
+                    "event": "genai.files.upload.response",
+                    "file_name": file_name,
+                    "uri": file_uri,
+                    "state": str(getattr(info, "state", "")),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+        part = types.Part.from_uri(file_uri=str(file_uri), mime_type=str(mime_type))
+        return [prompt_text, part], (str(file_name) if file_name else None)
+    except Exception as upload_err:
+        print(
+            json.dumps(
+                {"event": "genai.files.upload.fallback", "reason": _truncate_text(str(upload_err), 500)},
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+
+    # 回退一：小视频直接内联
+    try:
+        size = os.path.getsize(video_path)
+    except Exception:
+        size = 0
+    inline_limit = _env_int("GEMINI_INLINE_MAX_BYTES", 15 * 1024 * 1024)
+    if size and size <= inline_limit:
+        try:
+            with open(video_path, "rb") as f:
+                data = f.read()
+            part = types.Part.from_bytes(data=data, mime_type=_video_mime_type(video_path))
+            return [prompt_text, part], None
+        except Exception:
+            pass
+
+    # 回退二：客户端抽帧
+    frames_data = (
+        load_frames_from_dir(frames_dir, max_frames=1000)
+        if frames_dir
+        else extract_frames(video_path, sample_fps if sample_fps > 0 else 3.0)
+    )
+    if not frames_data:
+        raise ValueError("No frames extracted from video.")
+    contents: List[Any] = [prompt_text]
+    for i in range(0, len(frames_data), 3):
+        ts = str(frames_data[i])
+        img = frames_data[i + 1]
+        if isinstance(img, PILImage.Image):
+            contents.append(f"Timestamp: {ts}")
+            contents.append(img)
+    return contents, None
+
+
+def _wait_kimi_file_ready(client: Any, file_id: str, timeout_seconds: int = 600) -> None:
+    """轮询 Kimi Files API 直到视频解析完成；SDK 不支持 retrieve 时直接跳过。"""
+    deadline = time.time() + max(30, timeout_seconds)
+    while time.time() < deadline:
+        try:
+            info = client.files.retrieve(file_id)
+        except AttributeError:
+            return
+        except Exception:
+            time.sleep(2.0)
+            continue
+        status = str(getattr(info, "status", "") or "").lower()
+        if status in ("", "processed", "ready", "active", "succeeded"):
+            return
+        if status in ("failed", "error"):
+            raise RuntimeError(f"kimi_file_process_failed(status={status})")
+        time.sleep(2.0)
+    raise RuntimeError("kimi_file_timeout")
+
+
+def _prepare_kimi_video_message(client: Any, video_path: str, prompt_text: str) -> Tuple[List[Dict[str, Any]], str]:
+    """上传视频到 Kimi Files API，返回 (消息内容, file_id)。"""
+    with open(video_path, "rb") as f:
+        uploaded = client.files.create(file=f, purpose="video")
+    file_id = str(getattr(uploaded, "id", "") or "")
+    if not file_id:
+        raise RuntimeError("kimi_file_upload_empty_id")
+    print(
+        json.dumps(
+            {
+                "event": "moonshot.files.upload.response",
+                "file_id": file_id,
+                "status": str(getattr(uploaded, "status", "") or ""),
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    _wait_kimi_file_ready(client, file_id)
+    messages = [
+        {"type": "text", "text": prompt_text},
+        {"type": "video_url", "video_url": {"url": f"ms://{file_id}"}},
+    ]
+    return messages, file_id
 
 
 def _clear_kimi_files(client: Any) -> None:
@@ -1042,30 +1293,11 @@ def analyze_video_openai(
 
     if sample_fps <= 0:
         sample_fps = 3.0
-    
-    if frames_dir:
-        print(f"Loading frames from directory: {frames_dir}", flush=True)
-        frames_data = load_frames_from_dir(frames_dir, max_frames=1000)
-    else:
-        print(f"Extracting frames for {model} at {sample_fps} FPS...")
-        frames_data = extract_frames(video_path, sample_fps)
-    if not frames_data:
-        raise ValueError("No frames extracted from video.")
-    
-    print(f"Extracted {len(frames_data) // 2} frames.")
 
     prompt_text = (prompt_override or "").strip() or build_prompt(use_frames=True)
     
     # Inject SOP content into prompt if provided (redundant check if already added in setup, but safe)
     # prompt_text logic handled in main() where sop_content is merged into prompt_override
-        
-    frames: List[Tuple[str, PILImage.Image, str]] = []
-    for i in range(0, len(frames_data), 3):
-        ts = str(frames_data[i])
-        img = frames_data[i + 1]
-        fname = str(frames_data[i + 2])
-        if isinstance(img, PILImage.Image):
-            frames.append((ts, img, fname))
 
     used_model = _normalize_model_name(model)
     base_url = "https://api.moonshot.cn/v1"
@@ -1077,7 +1309,6 @@ def analyze_video_openai(
                 "requested_model": model,
                 "base_url": base_url,
                 "timeout_seconds": 60.0,
-                "frame_count": len(frames),
             },
             ensure_ascii=False,
         ),
@@ -1188,7 +1419,113 @@ def analyze_video_openai(
 
         all_actions: List[DetectedAction] = []
         video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
+        all_contents: List[str] = []
+        native_done = False
+        native_file_id: Optional[str] = None
 
+        # 优先把整段视频上传到 Kimi Files API，用 ms:// 引用直接分析；失败再回退抽帧
+        try:
+            print(
+                json.dumps(
+                    {
+                        "event": "moonshot.files.upload.request",
+                        "video_path": video_path,
+                        "video_bytes": os.path.getsize(video_path),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            native_messages, native_file_id = _prepare_kimi_video_message(client, video_path, prompt_text)
+            print(
+                json.dumps(
+                    {
+                        "event": "moonshot.video.request",
+                        "model": used_model,
+                        "requested_model": model,
+                        "file_id": native_file_id,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            if progress_callback:
+                progress_callback(0, 1)
+            response = client.chat.completions.create(
+                model=used_model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": native_messages},
+                ],
+                temperature=1,
+                timeout=300.0,
+            )
+            content = response.choices[0].message.content or "{}"
+            all_contents.append(content)
+            if not prompt_override:
+                data = _extract_json_content(content)
+                if isinstance(data, dict):
+                    all_actions.extend(parse_actions(data.get("actions")))
+                elif isinstance(data, list):
+                    all_actions.extend(parse_actions(data))
+            print(
+                json.dumps(
+                    {
+                        "event": "moonshot.video.content",
+                        "model": used_model,
+                        "requested_model": model,
+                        "content_preview": _truncate_text(content, 1200),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            usage = response.usage
+            if usage:
+                prompt_tokens_total = int(prompt_tokens_total or 0) + int(getattr(usage, "prompt_tokens", 0) or 0)
+                completion_tokens_total = int(completion_tokens_total or 0) + int(getattr(usage, "completion_tokens", 0) or 0)
+                total_tokens_total = int(total_tokens_total or 0) + int(getattr(usage, "total_tokens", 0) or 0)
+            if progress_callback:
+                progress_callback(1, 1)
+            native_done = True
+        except Exception as native_err:
+            print(
+                json.dumps(
+                    {
+                        "event": "moonshot.video.fallback",
+                        "reason": _truncate_text(str(native_err), 500),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        finally:
+            if native_file_id:
+                try:
+                    client.files.delete(native_file_id)
+                except Exception:
+                    pass
+                native_file_id = None
+
+        frames: List[Tuple[str, PILImage.Image, str]] = []
+        if not native_done:
+            if frames_dir:
+                print(f"Loading frames from directory: {frames_dir}", flush=True)
+                frames_data = load_frames_from_dir(frames_dir, max_frames=1000)
+            else:
+                print(f"Extracting frames for {model} at {sample_fps} FPS...", flush=True)
+                frames_data = extract_frames(video_path, sample_fps)
+            if not frames_data:
+                raise ValueError("No frames extracted from video.")
+            print(f"Extracted {len(frames_data) // 3} frames.", flush=True)
+            for i in range(0, len(frames_data), 3):
+                ts = str(frames_data[i])
+                img = frames_data[i + 1]
+                fname = str(frames_data[i + 2])
+                if isinstance(img, PILImage.Image):
+                    frames.append((ts, img, fname))
+
+        frame_total = len(frames) if frames else 1
         max_frames_per_request = _env_int("MOONSHOT_MAX_FRAMES_PER_REQUEST", 90)
         if max_frames_per_request < 1:
             max_frames_per_request = 1
@@ -1203,9 +1540,8 @@ def analyze_video_openai(
             ranges.append((i, min(i + max_frames_per_request, len(frames))))
 
         if progress_callback:
-            progress_callback(0, len(frames))
+            progress_callback(0, frame_total)
 
-        all_contents: List[str] = []
         processed_frames = 0
         batch_counter = 0
 
@@ -1329,7 +1665,7 @@ def analyze_video_openai(
 
             processed_frames += len(batch_frames)
             if progress_callback:
-                progress_callback(processed_frames, len(frames))
+                progress_callback(processed_frames, frame_total)
 
         if not all_contents:
             raise RuntimeError("moonshot_empty_response")
@@ -1339,7 +1675,7 @@ def analyze_video_openai(
             f.write(content)
 
         if progress_callback:
-            progress_callback(len(frames), len(frames))
+            progress_callback(frame_total, frame_total)
 
         actions = _merge_adjacent_actions(all_actions)
         computed_stats = compute_stats(actions)
@@ -1416,7 +1752,12 @@ def analyze_video_openai(
         result = {
             "input": {"video_path": video_path},
             "model": {"requested": model, "used": used_model},
-            "file": {"name": "frames", "uri": None, "mime_type": "image/jpeg", "state": "processed"},
+            "file": {
+                "name": "video" if native_done else "frames",
+                "uri": None,
+                "mime_type": _video_mime_type(video_path) if native_done else "image/jpeg",
+                "state": "processed",
+            },
             "prompt": prompt_text,
             "token_usage": usage_dict,
             "token_summary": {
@@ -1458,20 +1799,17 @@ def analyze_video_qwen(
     model: str,
     prompt_override: Optional[str] = None,
     output_stem: Optional[str] = None,
+    sample_fps: float = 0.0,
 ) -> Tuple[Dict[str, Any], List[DetectedAction]]:
     if not dashscope:
         raise ImportError("dashscope module not installed. Please install 'dashscope'.")
 
     prompt_text = (prompt_override or "").strip() or build_prompt(use_frames=False)
     used_model = _normalize_model_name(model)
-    base_url = _dashscope_base_url()
+    base_url = _dashscope_base_url(api_key)
     dashscope.base_http_api_url = base_url
-    abs_video_path = os.path.abspath(video_path)
-    file_uri = f"file://{abs_video_path}"
-    try:
-        video_size = os.path.getsize(video_path)
-    except Exception:
-        video_size = 0
+    max_inline_bytes = _env_int("QWEN_MAX_INLINE_BYTES", 12 * 1024 * 1024)
+    video_uri, video_size, used_source = _qwen_video_data_uri(video_path, max_inline_bytes)
 
     print(
         json.dumps(
@@ -1480,29 +1818,64 @@ def analyze_video_qwen(
                 "model": used_model,
                 "requested_model": model,
                 "base_url": base_url,
-                "file_uri": file_uri,
+                "video_source": used_source,
                 "video_bytes": video_size,
+                "fps": sample_fps or None,
             },
             ensure_ascii=False,
         ),
         flush=True,
     )
+    call_kwargs: Dict[str, Any] = {}
+    if sample_fps and float(sample_fps) > 0:
+        call_kwargs["fps"] = max(0.5, min(3.0, float(sample_fps)))
+    # 默认关闭思考模式：开启后长 prompt + 视频容易超过 300s 读超时
+    thinking_on = os.getenv("QWEN_ENABLE_THINKING", "").strip().lower() in ("1", "true", "yes", "on")
+    call_kwargs["enable_thinking"] = thinking_on
     try:
-        response = dashscope.MultiModalConversation.call(
-            api_key=api_key,
-            model=used_model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [{"video": file_uri}, {"text": prompt_text}],
-                }
-            ],
-        )
-        content = ""
-        try:
-            content = _dashscope_content_to_text(response.output.choices[0].message.content)
-        except Exception:
-            content = _dashscope_content_to_text(getattr(response, "output", None))
+        request_messages = [
+            {
+                "role": "user",
+                "content": [{"video": video_uri}, {"text": prompt_text}],
+            }
+        ]
+        stream_mode = os.getenv("QWEN_STREAM", "1").strip().lower() not in ("0", "false", "no", "off")
+        response = None
+        if stream_mode:
+            # 流式读取：避免长输出触发 300s 读超时
+            parts: List[str] = []
+            for chunk in dashscope.MultiModalConversation.call(
+                api_key=api_key,
+                model=used_model,
+                messages=request_messages,
+                stream=True,
+                **call_kwargs,
+            ):
+                status = getattr(chunk, "status_code", 200)
+                if status != 200:
+                    raise RuntimeError(getattr(chunk, "message", f"stream status {status}"))
+                response = chunk
+                piece = ""
+                try:
+                    piece = _dashscope_content_to_text(
+                        chunk.output.choices[0].message.content, strip=False
+                    )
+                except Exception:
+                    piece = ""
+                if piece:
+                    parts.append(piece)
+            content = "".join(parts)
+        else:
+            response = dashscope.MultiModalConversation.call(
+                api_key=api_key,
+                model=used_model,
+                messages=request_messages,
+                **call_kwargs,
+            )
+            try:
+                content = _dashscope_content_to_text(response.output.choices[0].message.content)
+            except Exception:
+                content = _dashscope_content_to_text(getattr(response, "output", None))
         print(
             json.dumps(
                 {
@@ -1565,7 +1938,7 @@ def analyze_video_qwen(
     result = {
         "input": {"video_path": video_path},
         "model": {"requested": model, "used": used_model},
-        "file": {"name": "video", "uri": file_uri, "mime_type": "video/mp4", "state": "processed"},
+        "file": {"name": "video", "uri": used_source, "mime_type": "video/mp4", "state": "processed"},
         "prompt": prompt_text,
         "token_usage": usage_dict,
         "token_summary": {
@@ -1591,13 +1964,14 @@ def analyze_video(
     output_stem: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[DetectedAction]]:
     normalized = _normalize_model_name(model)
-    if normalized.startswith("qwen3.5"):
+    if _is_qwen_model_name(normalized):
         return analyze_video_qwen(
             api_key,
             video_path,
             model,
             prompt_override=prompt_override,
             output_stem=output_stem,
+            sample_fps=sample_fps,
         )
     if normalized.startswith("kimi") or normalized.startswith("moonshot"):
         return analyze_video_openai(
@@ -1612,55 +1986,25 @@ def analyze_video(
 
     client = genai.Client(api_key=api_key)
 
-    # --- Batch Processing Logic (Parity with Kimi 2.5) ---
-    # The user requested "do the kimi 2.5's job", which implies:
-    # 1. Frame extraction (default 1 FPS)
-    # 2. Batch processing (60 frames/batch)
-    # 3. MD output and merging
-    
     if sample_fps <= 0:
         sample_fps = 3.0
-    
-    frames_data: List[Any] = []
-    if frames_dir:
-        print(f"Loading frames from directory: {frames_dir}", flush=True)
-        frames_data = load_frames_from_dir(frames_dir, max_frames=1000)
-    else:
-        print(f"Extracting frames for {model} at {sample_fps} FPS...", flush=True)
-        frames_data = extract_frames(video_path, sample_fps)
-    
-    if not frames_data:
-        raise ValueError("No frames extracted from video.")
-    
-    print(f"Extracted {len(frames_data) // 2} frames.")
-
-    frames: List[Tuple[str, PILImage.Image, str]] = []
-    for i in range(0, len(frames_data), 3):
-        ts = str(frames_data[i])
-        img = frames_data[i + 1]
-        fname = str(frames_data[i + 2])
-        if isinstance(img, PILImage.Image):
-            frames.append((ts, img, fname))
 
     prompt_text = (prompt_override or "").strip() or build_prompt(use_frames=True)
-    
-    # Create result directory
     video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
-    result_dir = os.path.join("result", video_name)
-    os.makedirs(result_dir, exist_ok=True)
+    os.makedirs(os.path.join("result", video_name), exist_ok=True)
 
     used_model = normalized
     # Fallback setup
     fallback_model = "gemini-1.5-flash"
-    
+
     prompt_tokens_total = 0
     completion_tokens_total = 0
     total_tokens_total = 0
 
-    contents: List[Any] = [prompt_text]
-    for ts, img, _ in frames:
-        contents.append(f"Timestamp: {ts}")
-        contents.append(img)
+    uploaded_file_name: Optional[str] = None
+    contents, uploaded_file_name = _prepare_gemini_video_contents(
+        client, video_path, prompt_text, sample_fps, frames_dir
+    )
 
     print(
         json.dumps(
@@ -1668,8 +2012,7 @@ def analyze_video(
                 "event": "gemini.generate_content.request.batch",
                 "model": used_model,
                 "batch_index": 1,
-                "batch_frame_count": len(frames),
-                "batch_start": 0,
+                "input_parts": len(contents),
             },
             ensure_ascii=False,
         ),
@@ -1700,6 +2043,13 @@ def analyze_video(
     except Exception as e:
         print(f"[ERROR] Request failed: {e}", flush=True)
         raise e
+    finally:
+        # 分析结束后立即删除云端文件，避免占用 Files API 配额
+        if uploaded_file_name:
+            try:
+                client.files.delete(name=uploaded_file_name)
+            except Exception:
+                pass
 
     # Construct result object
     # Since we are using prompt_override (SOP mode), actions/stats are empty as per Kimi parity
@@ -1722,7 +2072,7 @@ def analyze_video(
     result: Dict[str, Any] = {
         "input": {"video_path": video_path},
         "model": {"requested": model, "used": used_model},
-        "file": {"name": "frames_batch", "uri": None, "mime_type": "image/jpeg", "state": "processed"},
+        "file": {"name": "video", "uri": None, "mime_type": _video_mime_type(video_path), "state": "processed"},
         "prompt": prompt_text,
         "token_usage": usage_dict,
         "token_summary": {

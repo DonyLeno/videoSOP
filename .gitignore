@@ -9,6 +9,9 @@ venv/
 *.log
 result/
 *.tar
+*.tar.gz
+docker/bundle/build-context/
+docker/bundle/wheels/
 .DS_Store
 .port
 -=yt.py

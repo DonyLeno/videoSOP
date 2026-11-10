@@ -103,9 +103,15 @@ export const I18N = {
     settings_language_tip: '切换后立即生效，并记住你的选择。',
     settings_version_label: '当前版本:',
     settings_version_loading: 'loading...',
+    settings_danger_title: '数据清理',
+    settings_clear_all_desc: '清空所有已上传视频、抽帧缓存、检测结果文件及检测记录。项目、产线、工位、用户与 SOP 配置不受影响，操作不可恢复。',
+    settings_clear_all_button: '一键清除所有内容',
+    settings_clear_all_confirm: '确定清除所有视频、检测结果与检测记录？该操作不可恢复。',
+    settings_clear_all_done: '已清除所有内容',
+    settings_clear_all_failed: '清除内容失败',
     detection_title: '视觉检测任务',
     detection_new_task: '新建任务',
-    detection_fps_label: 'FPS (每秒采样帧数)',
+    detection_fps_label: 'FPS (0.5–3 每秒采样帧数)',
     detection_select_video: '选择视频',
     upload_to_data: '上传视频到 data/:',
     choose_file: '选择文件',
@@ -141,6 +147,8 @@ export const I18N = {
     cost_formula_note:
       '说明：P 为固定提示词/结构化输出等估算 tokens；k 为每帧视觉 token 估算系数；Think 为“思考/推理 tokens”估算（按输出单价计）。',
     start_detect: '开始检测与标注',
+    merge: '合并动作',
+    merging: '合并中...',
     prepare_text: '准备中...',
     collapse_log: '折叠日志',
     expand_log: '展开日志',
@@ -367,6 +375,10 @@ export const I18N = {
     project_line_current: '当前产线',
     project_line_exit: '返回全部产线',
     project_line_delete: '删除',
+    project_delete: '删除项目',
+    project_delete_confirm: '确定删除项目「{name}」？项目下的产线与工位会一并删除，该操作不可恢复。',
+    project_deleted: '项目已删除',
+    project_delete_failed: '删除项目失败',
     project_line_delete_confirm: '确定删除产线「{name}」？该操作不可恢复。',
     project_line_deleted: '产线已删除',
     project_line_delete_failed: '删除产线失败',
@@ -404,9 +416,10 @@ export const I18N = {
     line_station_count: '工位数量（创建后自动生成）',
     station_label: '工位',
     station_plan_title: '工位示意图（2.5D）',
-    station_plan_hint: '拖动工位可调整布局，点击工位可选中；上传视频会绑定到所选工位。',
+    station_plan_hint: '拖动工位可调整布局，单击选中，双击（或点「编辑选中工位」）编辑名称、说明、SOP 并上传视频。',
     station_plan_empty: '该产线暂无工位，点击「添加工位」开始布置。',
     station_add: '添加工位',
+    station_edit: '编辑选中工位',
     station_delete: '删除选中工位',
     station_delete_confirm: '确认删除工位「{name}」？已绑定视频的工位无法删除。',
     station_deleted: '工位已删除',
@@ -417,6 +430,24 @@ export const I18N = {
     station_select_label: '绑定工位',
     station_select_placeholder: '请选择工位',
     station_line_required: '请先进入一个产线',
+    station_edit_title: '编辑工位',
+    station_name: '工位名称',
+    station_description: '工位说明',
+    station_sop: '工位 SOP',
+    station_upload_video: '上传视频到该工位（选择文件后自动上传）',
+    station_videos: '已上传视频',
+    station_no_videos: '该工位还没有上传视频',
+    station_video_play_hint: '双击播放视频',
+    station_video_delete_confirm: '确定删除视频 {name} 吗？',
+    station_video_deleted: '视频已删除',
+    station_video_delete_failed: '删除视频失败',
+    station_video_play_failed: '视频无法播放，请确认文件存在',
+    video_preview_title: '视频预览',
+    delete: '删除',
+    station_upload_select_file: '请先选择视频文件',
+    station_name_required: '工位名称不能为空',
+    station_saved: '工位已保存',
+    station_save_failed: '保存工位失败',
     station_video_count: '视频 {count}',
     saved: '已保存'
   },
@@ -520,9 +551,15 @@ export const I18N = {
     settings_language_tip: 'Applies immediately and remembers your choice.',
     settings_version_label: 'Current Version:',
     settings_version_loading: 'loading...',
+    settings_danger_title: 'Data Cleanup',
+    settings_clear_all_desc: 'Removes all uploaded videos, frame caches, detection result files and detection records. Projects, lines, stations, users and SOP settings are kept. This cannot be undone.',
+    settings_clear_all_button: 'Clear All Content',
+    settings_clear_all_confirm: 'Delete all videos, detection results and records? This cannot be undone.',
+    settings_clear_all_done: 'All content cleared',
+    settings_clear_all_failed: 'Failed to clear content',
     detection_title: 'Detection Task',
     detection_new_task: 'New Task',
-    detection_fps_label: 'FPS (frames per second)',
+    detection_fps_label: 'FPS (0.5–3 frames per second)',
     detection_select_video: 'Select Video',
     upload_to_data: 'Upload video to data/:',
     choose_file: 'Choose File',
@@ -558,6 +595,8 @@ export const I18N = {
     cost_formula_note:
       'Note: P is fixed prompt/structured output estimate; k is vision token factor per frame; Think is estimated reasoning tokens (priced at output rate).',
     start_detect: 'Start Detection & Labeling',
+    merge: 'Merge Actions',
+    merging: 'Merging...',
     prepare_text: 'Preparing...',
     collapse_log: 'Collapse Log',
     expand_log: 'Expand Log',
@@ -784,6 +823,10 @@ export const I18N = {
     project_line_current: 'Current Line',
     project_line_exit: 'All Lines',
     project_line_delete: 'Delete',
+    project_delete: 'Delete project',
+    project_delete_confirm: 'Delete project "{name}"? Its lines and stations will also be removed. This cannot be undone.',
+    project_deleted: 'Project deleted',
+    project_delete_failed: 'Failed to delete project',
     project_line_delete_confirm: 'Delete line "{name}"? This cannot be undone.',
     project_line_deleted: 'Line deleted',
     project_line_delete_failed: 'Failed to delete line',
@@ -821,9 +864,10 @@ export const I18N = {
     line_station_count: 'Station Count (auto-created)',
     station_label: 'Station',
     station_plan_title: 'Station Layout (2.5D)',
-    station_plan_hint: 'Drag stations to adjust the layout; click to select. Uploaded videos bind to the selected station.',
+    station_plan_hint: 'Drag stations to adjust the layout; click to select, double-click (or click "Edit Selected") to edit name, description, SOP and upload videos.',
     station_plan_empty: 'No stations on this line yet. Click "Add Station" to start.',
     station_add: 'Add Station',
+    station_edit: 'Edit Selected',
     station_delete: 'Delete Selected',
     station_delete_confirm: 'Delete station "{name}"? Stations with bound videos cannot be deleted.',
     station_deleted: 'Station deleted',
@@ -834,6 +878,24 @@ export const I18N = {
     station_select_label: 'Bind Station',
     station_select_placeholder: 'Select a station',
     station_line_required: 'Enter a line first',
+    station_edit_title: 'Edit Station',
+    station_name: 'Station Name',
+    station_description: 'Station Description',
+    station_sop: 'Station SOP',
+    station_upload_video: 'Upload video to this station (uploads automatically after choosing a file)',
+    station_videos: 'Uploaded Videos',
+    station_no_videos: 'No videos uploaded to this station yet',
+    station_video_play_hint: 'Double-click to play',
+    station_video_delete_confirm: 'Delete video {name}?',
+    station_video_deleted: 'Video deleted',
+    station_video_delete_failed: 'Failed to delete video',
+    station_video_play_failed: 'Unable to play this video. Please make sure the file exists.',
+    video_preview_title: 'Video Preview',
+    delete: 'Delete',
+    station_upload_select_file: 'Choose a video file first',
+    station_name_required: 'Station name cannot be empty',
+    station_saved: 'Station saved',
+    station_save_failed: 'Failed to save station',
     station_video_count: 'Videos {count}',
     saved: 'Saved'
   }
@@ -864,6 +926,21 @@ export function t(key, params) {
   return text;
 }
 
+const missingKeys = new Set();
+
+function lookup(key) {
+  const dict = I18N[currentLang] || I18N.zh;
+  const text = Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : I18N.zh[key];
+  if (typeof text !== 'string') {
+    if (!missingKeys.has(key)) {
+      missingKeys.add(key);
+      console.warn(`[i18n] 缺少翻译 key: ${key}`);
+    }
+    return null;
+  }
+  return text;
+}
+
 export function applyLanguage(lang) {
   currentLang = normalizeLang(lang);
   document.documentElement.setAttribute('lang', currentLang === 'en' ? 'en' : 'zh-CN');
@@ -871,31 +948,37 @@ export function applyLanguage(lang) {
     localStorage.setItem('ui_lang', currentLang);
   } catch {}
 
+  // 缺少翻译时保留 HTML 中的兜底文案，绝不把 key 直接显示到界面上
   document.querySelectorAll('[data-i18n]').forEach((el) => {
     if (el.id === 'currentVersion' && el.dataset && el.dataset.version) return;
     const key = el.getAttribute('data-i18n');
     if (!key) return;
-    el.textContent = t(key);
+    const text = lookup(key);
+    if (text !== null) el.textContent = text;
   });
   document.querySelectorAll('[data-i18n-html]').forEach((el) => {
     const key = el.getAttribute('data-i18n-html');
     if (!key) return;
-    el.innerHTML = t(key);
+    const text = lookup(key);
+    if (text !== null) el.innerHTML = text;
   });
   document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
     const key = el.getAttribute('data-i18n-placeholder');
     if (!key) return;
-    el.setAttribute('placeholder', t(key));
+    const text = lookup(key);
+    if (text !== null) el.setAttribute('placeholder', text);
   });
   document.querySelectorAll('[data-i18n-alt]').forEach((el) => {
     const key = el.getAttribute('data-i18n-alt');
     if (!key) return;
-    el.setAttribute('alt', t(key));
+    const text = lookup(key);
+    if (text !== null) el.setAttribute('alt', text);
   });
   document.querySelectorAll('[data-i18n-short]').forEach((el) => {
     const key = el.getAttribute('data-i18n-short');
     if (!key) return;
-    el.dataset.short = t(key);
+    const text = lookup(key);
+    if (text !== null) el.dataset.short = text;
   });
 
   refreshDynamicText();

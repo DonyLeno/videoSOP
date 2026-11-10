@@ -27,9 +27,26 @@ def _parse_time_str(t_str: str) -> float:
     raise ValueError(f"Invalid time format: {t_str}")
 
 
+def normalize_md_content(content: str) -> str:
+    """修复模型输出的紧凑 Markdown：拆分行内标题、分隔线与粘连的表格行。"""
+    text = str(content or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not text.strip():
+        return ""
+    # 行首标题缺少空格，如 “###1.工序概览” -> “### 1.工序概览”
+    text = re.sub(r"^(#{1,6})(?=[^\s#])", r"\1 ", text, flags=re.M)
+    # 分隔线与标题粘连，如 “---### 5. 浪费识别” -> “---\n### 5. 浪费识别”
+    text = re.sub(r"-{2,}[ \t]*(#{1,6})[ \t]*(?=[^\s#])", r"\n---\n\1 ", text)
+    text = re.sub(r"-{2,}[ \t]*(#{1,6})[ \t]+", r"\n---\n\1 ", text)
+    # 表格数据行被粘连，如 “… || 3 | 5 | …”（需同时满足 Cycle 与序号两列都是数字，避免拆错空单元格）
+    text = re.sub(r"\|\|(?=[ \t]*\d{1,2}[ \t]*\|[ \t]*\d{1,3}[ \t]*\|)", "|\n|", text)
+    # 表头与分隔行被粘连，如 “… || :--- | …”
+    text = re.sub(r"\|\|(?=[ \t]*:?-{3,})", "|\n|", text)
+    return text
+
+
 def parse_md_content(content: str) -> Dict[str, object]:
     sections: Dict[str, object] = {"overview": "", "actions": [], "deep_dive": "", "kaizen": ""}
-    lines = (content or "").splitlines()
+    lines = normalize_md_content(content).splitlines()
     current_section = None
     action_table_lines: List[str] = []
     preface_lines: List[str] = []
@@ -41,13 +58,14 @@ def parse_md_content(content: str) -> Dict[str, object]:
                 current_section = "actions_header"
             break
 
-    re_overview = re.compile(r"^#{2,6}\s+.*(工序概览|Overview)", re.IGNORECASE)
-    re_actions = re.compile(r"^#{2,6}\s+.*(动作分析|Motion Breakdown|Motion Analysis)", re.IGNORECASE)
-    re_deep_dive = re.compile(r"^#{2,6}\s+.*(深度诊断|Deep Dive)", re.IGNORECASE)
-    re_kaizen = re.compile(r"^#{2,6}\s+.*(改善|Kaizen)", re.IGNORECASE)
-    re_waste = re.compile(r"^#{2,6}\s+.*(浪费|Muda)", re.IGNORECASE)
-    re_supplement = re.compile(r"^#{2,6}\s+.*(补充|Supplement)", re.IGNORECASE)
-    re_notes = re.compile(r"^#{2,6}\s+.*(备注|Notes|Confidence|Limitations)", re.IGNORECASE)
+    re_overview = re.compile(r"^#{1,6}\s*.*(工序概览|Overview)", re.IGNORECASE)
+    re_actions = re.compile(r"^#{1,6}\s*.*(动作分析|Motion Breakdown|Motion Analysis)", re.IGNORECASE)
+    re_deep_dive = re.compile(r"^#{1,6}\s*.*(深度诊断|Deep Dive|DeepDive)", re.IGNORECASE)
+    re_kaizen = re.compile(r"^#{1,6}\s*.*(改善|Kaizen)", re.IGNORECASE)
+    re_waste = re.compile(r"^#{1,6}\s*.*(浪费|Muda)", re.IGNORECASE)
+    re_therbligs = re.compile(r"^#{1,6}\s*.*(动素|Therblig)", re.IGNORECASE)
+    re_supplement = re.compile(r"^#{1,6}\s*.*(补充|Supplement)", re.IGNORECASE)
+    re_notes = re.compile(r"^#{1,6}\s*.*(备注|Notes|Confidence|Limitations|限制|补拍)", re.IGNORECASE)
 
     for line in lines:
         if not seen_any_section:
@@ -57,6 +75,7 @@ def parse_md_content(content: str) -> Dict[str, object]:
                 or re_deep_dive.match(line)
                 or re_kaizen.match(line)
                 or re_waste.match(line)
+                or re_therbligs.match(line)
                 or re_supplement.match(line)
                 or re_notes.match(line)
             ):
@@ -76,14 +95,17 @@ def parse_md_content(content: str) -> Dict[str, object]:
         if re_kaizen.match(line):
             current_section = "kaizen"
             continue
-        if re_waste.match(line):
+        if re_waste.match(line) or re_therbligs.match(line):
             current_section = "deep_dive"
             continue
         if re_supplement.match(line) or re_notes.match(line):
             current_section = "kaizen"
             continue
-        if line.strip().startswith("## "):
-            current_section = None
+        if re.match(r"^#{1,6}\s*\S", line):
+            # 未归类的标题：保留到工序概览，避免正文丢失
+            current_section = "overview"
+            sections["overview"] = str(sections.get("overview") or "") + line + "\n"
+            continue
 
         if current_section == "overview":
             sections["overview"] = str(sections.get("overview") or "") + line + "\n"
@@ -163,7 +185,7 @@ def parse_md_content(content: str) -> Dict[str, object]:
         except ValueError:
             idx_col = 0
 
-        for row_line in action_table_lines[2:]:
+        for row_line in action_table_lines[1:]:
             cells = [p.strip() for p in row_line.split("|")[1:-1]]
             if not cells:
                 continue

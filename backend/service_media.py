@@ -6,7 +6,16 @@ import urllib.parse
 from typing import Dict, List, Optional
 
 from backend.app_config import ALLOWED_UPLOAD_EXTS, MAX_UPLOAD_BYTES
-from backend.app_db_org import ensure_default_scope, get_station, list_videos_for_user, register_video
+from backend.app_db_org import (
+    can_manage_project,
+    clear_all_content,
+    delete_video,
+    ensure_default_scope,
+    get_station,
+    get_video,
+    list_videos_for_user,
+    register_video,
+)
 from backend.app_logging import get_logger
 
 logger = get_logger("media")
@@ -42,60 +51,130 @@ def _resolve_scope(parsed_path=None) -> Dict[str, Optional[int]]:
     return {"project_id": project_id, "line_id": line_id, "station_id": station_id}
 
 
-def ensure_720p(video_path: str) -> None:
+TARGET_VIDEO_BYTES = 100 * 1024 * 1024
+MAX_VIDEO_SECONDS = 180
+MAX_VIDEO_HEIGHT = 720
+
+
+def _probe_video(video_path: str) -> Dict[str, object]:
+    """返回视频基础信息（时长/宽高/编码），探测失败返回空字典。"""
     try:
-        cmd_probe = [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "csv=s=x:p=0",
-            video_path,
-        ]
-        proc = subprocess.run(cmd_probe, capture_output=True, text=True)
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type,codec_name,width,height:format=duration",
+                "-of",
+                "json",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
         if proc.returncode != 0:
-            return
-        out = (proc.stdout or "").strip()
-        parts = out.split("x")
-        if len(parts) != 2:
-            return
-        w, h = int(parts[0]), int(parts[1])
-        if min(w, h) <= 720:
-            return
-        scale_filter = "scale=-2:720" if w >= h else "scale=720:-2"
-        dir_name = os.path.dirname(video_path)
-        base_name = os.path.basename(video_path)
-        name, ext = os.path.splitext(base_name)
-        compressed_path = os.path.join(dir_name, f"{name}_720p{ext}")
-        cmd_ffmpeg = [
-            "ffmpeg",
-            "-y",
-            "-i",
-            video_path,
-            "-vf",
-            scale_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "23",
-            "-c:a",
-            "copy",
-            compressed_path,
-        ]
-        res = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
-        if res.returncode == 0:
-            os.replace(compressed_path, video_path)
-        else:
-            if os.path.exists(compressed_path):
-                os.remove(compressed_path)
+            return {}
+        payload = json.loads(proc.stdout or "{}")
     except Exception:
-        return
+        return {}
+    info: Dict[str, object] = {}
+    for stream in payload.get("streams") or []:
+        codec_type = str(stream.get("codec_type") or "")
+        if codec_type == "video" and "width" not in info:
+            info["width"] = int(stream.get("width") or 0)
+            info["height"] = int(stream.get("height") or 0)
+            info["video_codec"] = str(stream.get("codec_name") or "")
+        elif codec_type == "audio" and "audio_codec" not in info:
+            info["audio_codec"] = str(stream.get("codec_name") or "")
+    duration = (payload.get("format") or {}).get("duration")
+    if duration:
+        try:
+            info["duration"] = float(duration)
+        except Exception:
+            pass
+    return info
+
+
+def normalize_video(
+    video_path: str,
+    max_seconds: int = MAX_VIDEO_SECONDS,
+    max_height: int = MAX_VIDEO_HEIGHT,
+    target_bytes: int = TARGET_VIDEO_BYTES,
+) -> bool:
+    """统一转码一次：≤180s、高度≤720p、H.264/AAC、faststart，目标 ≤100MB。
+
+    已是合规视频时直接返回；转码失败返回 False（保留原文件）。
+    """
+    info = _probe_video(video_path)
+    try:
+        size = os.path.getsize(video_path)
+    except Exception:
+        return False
+    duration = info.get("duration")
+    height = int(info.get("height") or 0)
+    need_trim = isinstance(duration, (int, float)) and float(duration) > float(max_seconds)
+    need_scale = height > max_height
+    need_codec = str(info.get("video_codec") or "").lower() not in ("", "h264")
+    need_audio = str(info.get("audio_codec") or "").lower() not in ("", "aac")
+    need_size = size > target_bytes
+    if not (need_trim or need_scale or need_codec or need_audio or need_size):
+        return True
+
+    base, ext = os.path.splitext(video_path)
+    temp_path = f"{base}_norm{ext or '.mp4'}"
+    crf_values = [26, 30] if need_size else [23]
+    for attempt, crf in enumerate(crf_values):
+        cmd = ["ffmpeg", "-y", "-i", video_path, "-t", str(max_seconds)]
+        if need_scale:
+            cmd.extend(["-vf", f"scale=-2:{max_height}"])
+        cmd.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                str(crf),
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                temp_path,
+            ]
+        )
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0 or not os.path.exists(temp_path) or os.path.getsize(temp_path) <= 0:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            continue
+        os.replace(temp_path, video_path)
+        final_info = _probe_video(video_path)
+        final_size = os.path.getsize(video_path)
+        final_duration = final_info.get("duration")
+        final_height = int(final_info.get("height") or 0)
+        if isinstance(final_duration, (int, float)) and float(final_duration) > max_seconds + 1:
+            logger.warning("视频标准化后仍超过 %ss: path=%s", max_seconds, video_path)
+        if final_height > max_height:
+            logger.warning("视频标准化后高度仍超过 %sp: path=%s", max_height, video_path)
+        if final_size > target_bytes:
+            logger.warning(
+                "视频标准化后体积仍超过目标: path=%s, size=%d, target=%d",
+                video_path,
+                final_size,
+                target_bytes,
+            )
+            if attempt + 1 < len(crf_values):
+                continue
+        else:
+            logger.info("视频标准化完成: path=%s, size=%d", video_path, final_size)
+        return True
+    logger.warning("视频标准化失败: path=%s", video_path)
+    return False
 
 
 def _get_video_duration(video_path: str):
@@ -134,41 +213,6 @@ def _get_video_duration(video_path: str):
         except Exception:
             duration = None
     return duration
-
-
-def _trim_video_to_180(video_path: str) -> bool:
-    duration = _get_video_duration(video_path)
-    if duration is not None and duration <= 180:
-        return True
-    base, ext = os.path.splitext(video_path)
-    trimmed_path = f"{base}_trim180{ext or '.mp4'}"
-    trim = subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-i",
-            video_path,
-            "-t",
-            "180",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "23",
-            "-c:a",
-            "aac",
-            trimmed_path,
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if trim.returncode == 0 and os.path.exists(trimmed_path):
-        os.replace(trimmed_path, video_path)
-        return True
-    if os.path.exists(trimmed_path):
-        os.remove(trimmed_path)
-    return False
 
 
 def handle_upload(handler, user: Optional[Dict[str, object]] = None, parsed_path=None) -> bool:
@@ -227,9 +271,9 @@ def handle_upload(handler, user: Optional[Dict[str, object]] = None, parsed_path
                     break
                 f.write(chunk)
                 bytes_read += len(chunk)
-        if not _trim_video_to_180(save_path):
-            logger.warning("上传后裁剪失败: path=%s", save_path)
-            handler.send_json(500, {"error": "trim_failed"})
+        if not normalize_video(save_path):
+            logger.warning("上传后视频标准化失败: path=%s", save_path)
+            handler.send_json(500, {"error": "normalize_failed"})
             return True
         # 视频资产登记入库（幂等：同名覆盖上传时更新元数据）
         try:
@@ -273,11 +317,9 @@ def handle_extract_frames(handler, user: dict) -> bool:
             handler.send_json(404, {"error": "video_not_found", "path": video_path})
             return True
 
-        if not _trim_video_to_180(video_path):
-            handler.send_json(500, {"error": "trim_failed"})
+        if not normalize_video(video_path):
+            handler.send_json(500, {"error": "normalize_failed"})
             return True
-
-        ensure_720p(video_path)
 
         try:
             import cv2  # type: ignore
@@ -458,4 +500,297 @@ def handle_video_info(handler, parsed_path) -> bool:
         handler.send_header("Content-type", "application/json")
         handler.end_headers()
         handler.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+        return True
+
+
+def _clear_uploaded_videos(target_dir: str) -> tuple:
+    """删除 data/ 下的视频文件与同名抽帧目录，保留数据库与其他文件。
+
+    返回 (视频数, 抽帧目录数, 释放字节数)。
+    """
+    deleted_files = 0
+    deleted_dirs = 0
+    freed_bytes = 0
+    video_bases: List[str] = []
+    if not os.path.isdir(target_dir):
+        return deleted_files, deleted_dirs, freed_bytes
+    for name in os.listdir(target_dir):
+        path = os.path.join(target_dir, name)
+        if not (os.path.isfile(path) and name.lower().endswith(_VIDEO_EXTS)):
+            continue
+        try:
+            freed_bytes += os.path.getsize(path)
+            os.remove(path)
+            deleted_files += 1
+            video_bases.append(os.path.splitext(name)[0])
+        except OSError:
+            logger.warning("删除视频文件失败: path=%s", path, exc_info=True)
+    for base_name in video_bases:
+        frames_dir = os.path.join(target_dir, base_name)
+        if not os.path.isdir(frames_dir):
+            continue
+        for dirpath, _, filenames in os.walk(frames_dir):
+            for fname in filenames:
+                try:
+                    freed_bytes += os.path.getsize(os.path.join(dirpath, fname))
+                except OSError:
+                    pass
+        shutil.rmtree(frames_dir, ignore_errors=True)
+        deleted_dirs += 1
+    return deleted_files, deleted_dirs, freed_bytes
+
+
+def _clear_directory_contents(target_dir: str) -> tuple:
+    """删除目录下的全部内容（保留目录本身），返回 (文件数, 子目录数, 释放字节数)。"""
+    deleted_files = 0
+    deleted_dirs = 0
+    freed_bytes = 0
+    if not os.path.isdir(target_dir):
+        return deleted_files, deleted_dirs, freed_bytes
+    for name in os.listdir(target_dir):
+        path = os.path.join(target_dir, name)
+        try:
+            if os.path.isdir(path):
+                for dirpath, _, filenames in os.walk(path):
+                    for fname in filenames:
+                        try:
+                            freed_bytes += os.path.getsize(os.path.join(dirpath, fname))
+                        except OSError:
+                            pass
+                shutil.rmtree(path, ignore_errors=True)
+                deleted_dirs += 1
+            else:
+                freed_bytes += os.path.getsize(path)
+                os.remove(path)
+                deleted_files += 1
+        except OSError:
+            logger.warning("清理目录内容失败: path=%s", path, exc_info=True)
+    return deleted_files, deleted_dirs, freed_bytes
+
+
+def handle_clear_all_content(handler, user: Optional[Dict[str, object]] = None) -> bool:
+    """一键清空所有内容：上传视频、抽帧缓存、检测结果文件与相关数据表记录。
+
+    仅管理员可调用；项目/产线/工位/用户等配置数据不受影响。
+    """
+    try:
+        role = str((user or {}).get("role") or "")
+        if role != "admin":
+            handler.send_json(403, {"error": "forbidden", "details": "仅管理员可清空内容"})
+            return True
+
+        video_files, frame_dirs, video_bytes = _clear_uploaded_videos("data")
+        result_files, result_dirs, result_bytes = _clear_directory_contents("result")
+
+        table_counts: Dict[str, int] = {}
+        try:
+            table_counts = clear_all_content()
+        except Exception:
+            logger.warning("清空内容数据表失败", exc_info=True)
+
+        logger.info(
+            "已清空所有内容: videos=%d, frames=%d, results=%d, tables=%s, freed_bytes=%d",
+            video_files,
+            frame_dirs,
+            result_files + result_dirs,
+            table_counts,
+            video_bytes + result_bytes,
+        )
+        handler.send_json(
+            200,
+            {
+                "status": "success",
+                "deleted_videos": video_files,
+                "deleted_frame_dirs": frame_dirs,
+                "deleted_result_files": result_files,
+                "deleted_result_dirs": result_dirs,
+                "deleted_records": table_counts,
+                "freed_bytes": video_bytes + result_bytes,
+            },
+        )
+        return True
+    except Exception as e:
+        logger.exception("清空内容处理异常")
+        handler.send_json(500, {"error": "clear_content_failed", "details": str(e)})
+        return True
+
+
+_BROWSER_CONTAINER_EXTS = (".mp4", ".webm")
+
+
+def _playable_path(stored_path: str) -> Optional[str]:
+    """返回浏览器可直接播放的文件路径，必要时转封装为 mp4（带缓存）。
+
+    Chrome 不支持 QuickTime 容器（.mov / major_brand=qt），需用 ffmpeg
+    无损转封装为 H.264/AAC 的 MP4；失败时回退重编码。
+    """
+    if not stored_path or not os.path.isfile(stored_path):
+        return None
+    base, ext = os.path.splitext(stored_path)
+    if ext.lower() in _BROWSER_CONTAINER_EXTS:
+        return stored_path
+    play_path = f"{base}_play.mp4"
+    if os.path.isfile(play_path) and os.path.getsize(play_path) > 0:
+        return play_path
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        stored_path,
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        play_path,
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0 or not os.path.isfile(play_path) or os.path.getsize(play_path) <= 0:
+        if os.path.exists(play_path):
+            os.remove(play_path)
+        reencode = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            stored_path,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "26",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            play_path,
+        ]
+        res = subprocess.run(reencode, capture_output=True, text=True)
+        if res.returncode != 0 or not os.path.isfile(play_path) or os.path.getsize(play_path) <= 0:
+            if os.path.exists(play_path):
+                os.remove(play_path)
+            logger.warning("视频转封装失败: path=%s", stored_path)
+            return None
+    logger.info("视频已转封装为可播放格式: src=%s, out=%s", stored_path, play_path)
+    return play_path
+
+
+def handle_ensure_playable(handler, user: Optional[Dict[str, object]] = None) -> bool:
+    """返回视频的可播放地址（必要时在服务端转封装为 mp4）。"""
+    try:
+        payload: Dict[str, object] = {}
+        try:
+            length = int(handler.headers.get("Content-Length") or 0)
+            if length > 0:
+                raw = handler.rfile.read(length)
+                payload = json.loads(raw or b"{}")
+        except Exception:
+            payload = {}
+        try:
+            video_id = int(payload.get("video_id") or payload.get("id") or 0)
+        except Exception:
+            video_id = 0
+        if not video_id:
+            handler.send_json(400, {"error": "missing_video_id"})
+            return True
+        video = get_video(video_id)
+        if not video:
+            handler.send_json(404, {"error": "video_not_found"})
+            return True
+        stored_path = str(video.get("stored_path") or "").strip()
+        playable = _playable_path(stored_path)
+        if not playable:
+            handler.send_json(404, {"error": "video_file_not_found"})
+            return True
+        handler.send_json(
+            200,
+            {
+                "status": "success",
+                "video_id": video_id,
+                "path": playable.replace(os.sep, "/"),
+                "converted": os.path.normpath(playable) != os.path.normpath(stored_path),
+            },
+        )
+        return True
+    except Exception as e:
+        logger.exception("获取可播放视频失败")
+        handler.send_json(500, {"error": "ensure_playable_failed", "details": str(e)})
+        return True
+
+
+def handle_delete_video(handler, user: Optional[Dict[str, object]] = None) -> bool:
+    """删除单个视频：磁盘文件、抽帧目录与 videos 表记录。"""
+    try:
+        payload: Dict[str, object] = {}
+        try:
+            length = int(handler.headers.get("Content-Length") or 0)
+            if length > 0:
+                raw = handler.rfile.read(length)
+                payload = json.loads(raw or b"{}")
+        except Exception:
+            payload = {}
+        try:
+            video_id = int(payload.get("video_id") or payload.get("id") or 0)
+        except Exception:
+            video_id = 0
+        if not video_id:
+            handler.send_json(400, {"error": "missing_video_id"})
+            return True
+        video = get_video(video_id)
+        if not video:
+            handler.send_json(404, {"error": "video_not_found"})
+            return True
+        try:
+            project_id = int(video.get("project_id") or 0)
+        except Exception:
+            project_id = 0
+        if not can_manage_project(user or {}, project_id):
+            handler.send_json(403, {"error": "forbidden", "details": "仅管理员或项目 owner 可删除视频"})
+            return True
+
+        stored_path = str(video.get("stored_path") or "").strip()
+        deleted_file = False
+        if stored_path and os.path.isfile(stored_path):
+            try:
+                os.remove(stored_path)
+                deleted_file = True
+            except OSError:
+                logger.warning("删除视频文件失败: path=%s", stored_path, exc_info=True)
+        if stored_path:
+            play_path = f"{os.path.splitext(stored_path)[0]}_play.mp4"
+            if os.path.isfile(play_path):
+                try:
+                    os.remove(play_path)
+                except OSError:
+                    logger.warning("删除转封装文件失败: path=%s", play_path, exc_info=True)
+            frames_dir = os.path.join(
+                os.path.dirname(stored_path) or "data",
+                os.path.splitext(os.path.basename(stored_path))[0],
+            )
+            if os.path.isdir(frames_dir):
+                shutil.rmtree(frames_dir, ignore_errors=True)
+
+        delete_video(video_id)
+        logger.info(
+            "已删除视频: id=%s, filename=%s, file=%s",
+            video_id,
+            video.get("filename"),
+            deleted_file,
+        )
+        handler.send_json(
+            200,
+            {
+                "status": "success",
+                "video_id": video_id,
+                "filename": video.get("filename"),
+                "deleted_file": deleted_file,
+            },
+        )
+        return True
+    except Exception as e:
+        logger.exception("删除视频处理异常")
+        handler.send_json(500, {"error": "delete_video_failed", "details": str(e)})
         return True

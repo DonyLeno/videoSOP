@@ -133,7 +133,7 @@ export function setupDetectionUI() {
     const priceIn = parseFloat(opt.dataset.priceIn);
     const priceOut = parseFloat(opt.dataset.priceOut);
 
-    const fps = parseFloat(fpsInput.value) || 3.0;
+    const fps = Math.min(3, Math.max(0.5, parseFloat(fpsInput.value) || 2.0));
     const tokensPerFrame = 258;
     const promptTokens = 800;
     const effectiveDuration = Math.min(selectedVideoDuration, 180);
@@ -231,7 +231,6 @@ export function setupDetectionUI() {
         notify(t('station_select_required'));
         return;
       }
-      const fps = 3.0;
       const progressWrapper = document.getElementById('uploadProgressWrapper');
       const uploadBar = document.getElementById('uploadVideoProgressBar');
       const uploadText = document.getElementById('uploadVideoProgressText');
@@ -246,8 +245,6 @@ export function setupDetectionUI() {
         if (frameText) frameText.textContent = '';
       }
 
-      let frameTimer = null;
-      let frameProgress = 0;
       btnUpload.disabled = true;
       btnUpload.textContent = t('uploading');
 
@@ -255,46 +252,9 @@ export function setupDetectionUI() {
         const data = await uploadVideoWithProgress(file, uploadBar, uploadText);
 
         if (data.status === 'success') {
-          if (frameText) frameText.textContent = t('preprocessing_video');
-          if (frameBar) {
-            frameProgress = 0;
-            frameBar.style.width = '0%';
-            frameTimer = setInterval(() => {
-              if (frameProgress < 90) {
-                frameProgress += 5;
-                frameBar.style.width = frameProgress + '%';
-              }
-            }, 300);
-          }
-
-          const res2 = await authFetch('/api/extract_frames', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ video_path: data.path, fps })
-          });
-
-          let data2;
-          try {
-            data2 = await res2.json();
-          } finally {
-            if (frameTimer) {
-              clearInterval(frameTimer);
-              frameTimer = null;
-            }
-          }
-
-          if (!res2.ok || data2.status !== 'success') {
-            const msg = (data2 && (data2.error || data2.details)) || t('extract_frames_failed');
-            throw new Error(msg);
-          }
-
-          if (frameBar) {
-            frameBar.style.width = '100%';
-          }
-          if (frameText) {
-            const count = typeof data2.frame_count === 'number' ? data2.frame_count : 0;
-            frameText.textContent = t('preprocess_done', { count });
-          }
+          // 服务端已完成统一转码（180s/720p），检测阶段直接上传整段视频，无需前端抽帧
+          if (frameBar) frameBar.style.width = '100%';
+          if (frameText) frameText.textContent = t('upload_success');
 
           notify(t('upload_success'));
           await loadVideoList();
@@ -346,7 +306,7 @@ export function setupDetectionUI() {
         model = 'kimi-2.5';
       }
       const fpsRaw = parseFloat(document.getElementById('detectFps')?.value);
-      const fps = Number.isFinite(fpsRaw) && fpsRaw > 0 ? fpsRaw : 3.0;
+      const fps = Number.isFinite(fpsRaw) ? Math.min(3, Math.max(0.5, fpsRaw)) : 2.0;
       const log = document.getElementById('detectLog');
       const btn = document.getElementById('btnStartDetect');
       const thumbnailContainer = document.getElementById('thumbnailContainer');

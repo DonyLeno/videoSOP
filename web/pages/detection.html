@@ -6,9 +6,9 @@
     </div>
   </div>
   <div class="panel-body">
-    <div class="form-group" style="display: none;">
-      <label class="form-label" data-i18n="detection_fps_label">FPS (每秒采样帧数)</label>
-      <input type="number" id="detectFps" class="form-control" value="3.0" step="0.1" min="0.1" max="30">
+    <div class="form-group">
+      <label class="form-label" data-i18n="detection_fps_label">FPS (0.5–3 每秒采样帧数)</label>
+      <input type="number" id="detectFps" class="form-control" value="2.0" step="0.1" min="0.5" max="3">
     </div>
 
     <div class="form-group">
@@ -19,11 +19,13 @@
       <div class="form-hint" data-i18n="project_detection_hint">检测会使用当前项目与产线的 SOP，结果生成后可在「结果查看」中打开。</div>
     </div>
 
-    <div class="form-group" style="display: none;">
+    <div class="form-group">
       <label class="form-label" data-i18n="detect_model_label">模型</label>
       <select id="detectModel" class="form-control">
         <option value="kimi-2.5" data-price-in="0.0" data-price-out="0.0" selected data-i18n="detect_model_default">GeniviewK2.5 (长文本/视觉增强)</option>
-        <option value="qwen3.5">Qwen 3.5</option>
+        <option value="qwen3.8-max">Geni3.8 Max</option>
+        <option value="qwen3.7-plus">Geni3.7 Plus</option>
+        <option value="qwen3.8-flash">Geni3.8 Flash</option>
         <option value="gemini2.5flash">Genie 2.5 Flash</option>
         <option value="gemini3flash">Genie 3 Flash</option>
       </select>

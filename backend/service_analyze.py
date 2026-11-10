@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from backend.app_config import ANALYZE_CONCURRENCY
 from backend.app_db import add_detection_history, get_user_api_key_model
@@ -62,18 +62,6 @@ def recover_interrupted_tasks() -> int:
     return count
 
 
-def _iter_image_files(root: str) -> List[str]:
-    exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-    paths: List[str] = []
-    for dirpath, _, filenames in os.walk(root):
-        for name in filenames:
-            ext = os.path.splitext(name)[1].lower()
-            if ext in exts:
-                paths.append(os.path.join(dirpath, name))
-    paths.sort()
-    return paths
-
-
 def _normalize_kimi_cli_model(model: str) -> str:
     text = str(model or "").strip()
     if not text:
@@ -82,12 +70,12 @@ def _normalize_kimi_cli_model(model: str) -> str:
     if lowered in ("Geniviewk2.5", "Geniview-k2.5") or text == "GeniviewK2.5":
         return "kimi-2.5"
     if lowered in ("qwen3.5", "qwen3.5-plus", "qwen-3.5", "qwen-3.5-plus"):
-        return "qwen3.5-plus"
+        return "qwen3.8-max"
     return text or model
 
 
 def _is_qwen_model(model: str) -> bool:
-    return str(model or "").lower().startswith("qwen3.5")
+    return str(model or "").strip().lower().startswith(("qwen3", "qwen-3"))
 
 
 def _extract_tokens_from_md(path: str) -> Dict[str, Optional[int]]:
@@ -174,16 +162,19 @@ def _extract_tokens_from_md(path: str) -> Dict[str, Optional[int]]:
 
 
 def _set_task_progress(username: str, phase: str, current: int, total: int) -> None:
+    current = max(0, int(current))
+    total = max(1, int(total))
+    current = min(current, total)
     with USER_TASKS_LOCK:
         task = USER_TASKS.get(username)
         if not task:
             return
         task["phase"] = phase
-        task["progress"] = {"current": int(current), "total": int(total)}
+        task["progress"] = {"current": current, "total": total}
         task_id = task.get("task_id")
     if task_id:
         try:
-            update_task_progress(int(task_id), phase, int(current), int(total))
+            update_task_progress(int(task_id), phase, current, total)
         except Exception:
             logger.warning("任务进度写库失败: task_id=%s", task_id, exc_info=True)
 
@@ -289,25 +280,15 @@ def background_analyze_task(
             "--prompt-file",
             prompt_file_arg,
         ]
-        if not _is_qwen_model(normalized_model):
-            cmd_main.extend(["--fps", str(fps), "--frames-dir", os.path.join("data", base_name)])
+        cmd_main.extend(["--fps", str(fps)])
         if sop_content:
             cmd_main.extend(["--sop-content", sop_content])
 
         video_result_filename = result_filename.replace(".md", ".mp4")
         output_video_path = os.path.join("result", video_result_filename)
 
+        # 视频优先直传模型，抽帧仅作为上传失败时的兜底路径，不再强制预检帧目录
         total_images = 1
-        if not _is_qwen_model(normalized_model):
-            frames_dir = os.path.join("data", base_name)
-            image_paths = _iter_image_files(frames_dir)
-            total_images = len(image_paths)
-            if total_images == 0:
-                _fail_task("no_images_found")
-                return
-            if total_images > 1000:
-                _fail_task("超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000")
-                return
 
         max_retries = 3
         final_response = None
@@ -383,6 +364,13 @@ def background_analyze_task(
                                                 _set_task_progress(username, "analyze", 0, total_images)
                                             elif evt_type == "qwen.chat_completions.content":
                                                 _set_task_progress(username, "analyze", total_images, total_images)
+                                            elif evt_type == "moonshot.video.request":
+                                                _set_task_progress(username, "analyze", 0, total_images)
+                                            elif evt_type == "moonshot.video.content":
+                                                _set_task_progress(username, "analyze", total_images, total_images)
+                                            elif evt_type == "moonshot.video.fallback":
+                                                reason = str(evt.get("reason") or "")
+                                                log(f"[INFO] Kimi 原生视频上传不可用，回退抽帧: {reason}\n".encode("utf-8"))
                                             elif evt_type == "kimi.files.cleared":
                                                 count = evt.get("count", 0)
                                                 log(f"[INFO] 已清理 Kimi 云端历史文件: {count} 个\n".encode("utf-8"))
@@ -642,7 +630,6 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
         else:
             model = "kimi-2.5"
         normalized_model = _normalize_kimi_cli_model(model)
-        is_qwen = _is_qwen_model(normalized_model)
 
         try:
             fps = float(fps_raw)
@@ -650,6 +637,9 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                 fps = 3.0
         except Exception:
             fps = 3.0
+        if _is_qwen_model(normalized_model):
+            # 千问视频输入只允许 0.5–3 fps
+            fps = max(0.5, min(3.0, fps))
 
         if not video_path:
             handler.send_response(400)
@@ -682,36 +672,8 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
             )
             return True
 
-        image_count = 1
-        if not is_qwen:
-            frames_dir = os.path.join("data", base_name)
-            if not os.path.isdir(frames_dir):
-                handler.send_json(
-                    400,
-                    {
-                        "error": "missing_frames_dir",
-                        "details": "请先上传视频并完成图片拆分后再开始检测",
-                        "video_path": output_video_path,
-                    },
-                )
-                return True
-            image_count = len(_iter_image_files(frames_dir))
-            if image_count == 0:
-                handler.send_json(
-                    400,
-                    {"error": "missing_frames", "details": "未找到拆分后的图片，请先完成图片拆分", "video_path": output_video_path},
-                )
-                return True
-            if image_count > 1000:
-                handler.send_json(
-                    400,
-                    {
-                        "error": "too_many_frames",
-                        "details": "超过模型保存文件上限（1000个）。请降低帧率或者分拆视频重新上传，保证视频时长*帧率 < 1000",
-                        "video_path": output_video_path,
-                    },
-                )
-                return True
+        # 视频直接交给模型分析，不再要求预先抽帧（抽帧接口仅保留为可选精修能力）
+        progress_total = 1
 
         ui_lang_raw = handler.headers.get("X-UI-Lang", "") or data.get("ui_lang", "") or ""
         ui_lang = str(ui_lang_raw).strip().lower()
@@ -781,8 +743,8 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                 video_id=int(video_id) if video_id else None,
                 project_id=int(project_id) if project_id else None,
                 line_id=int(line_id) if line_id else None,
-                progress_total=image_count,
-                progress_unit=("request" if is_qwen else "frame"),
+                progress_total=progress_total,
+                progress_unit="request",
             )
         except Exception as e:
             handler.send_json(500, {"error": "task_create_failed", "details": str(e)})
@@ -797,10 +759,10 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                     "error_msg": None,
                     "created_at": time.time(),
                     "phase": "analyze",
-                    "progress": {"current": 0, "total": image_count},
+                    "progress": {"current": 0, "total": progress_total},
                     "kind": "analyze",
                     "model": normalized_model,
-                    "progress_unit": ("request" if is_qwen else "frame"),
+                    "progress_unit": "request",
                     "prompt_path": prompt_path,
                     "ui_lang": ui_lang,
                     "task_id": task_id,
