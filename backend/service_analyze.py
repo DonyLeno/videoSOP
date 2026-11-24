@@ -268,7 +268,8 @@ def background_analyze_task(
             env["GOOGLE_API_KEY"] = api_key
 
         python_exe = sys.executable
-        prompt_file_arg = os.path.join("data", "ch_prompt.md")
+        # 使用调用方传入的模板（无周期长视频时是 ch_prompt_long.md），仅在缺省时回退默认模板
+        prompt_file_arg = prompt_file or os.path.join("data", "ch_prompt.md")
         cmd_main = [
             python_exe,
             "main.py",
@@ -362,6 +363,13 @@ def background_analyze_task(
                                                 _set_task_progress(username, "analyze", total_images, total_images)
                                             elif evt_type == "qwen.chat_completions.request":
                                                 _set_task_progress(username, "analyze", 0, total_images)
+                                            elif evt_type == "qwen.chat_completions.waiting":
+                                                waited = evt.get("elapsed")
+                                                log(f"[INFO] 等待模型响应 {waited} 秒（视频较大时处理较慢，请耐心等待）\n".encode("utf-8"))
+                                            elif evt_type == "qwen.chat_completions.progress":
+                                                chars = evt.get("chars")
+                                                elapsed = evt.get("elapsed")
+                                                log(f"[INFO] 模型已返回约 {chars} 字符（{elapsed} 秒）\n".encode("utf-8"))
                                             elif evt_type == "qwen.chat_completions.content":
                                                 _set_task_progress(username, "analyze", total_images, total_images)
                                             elif evt_type == "moonshot.video.request":
@@ -612,7 +620,7 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
         text_model = str(raw_model).strip() if raw_model is not None else ""
         model = "kimi-2.5"
 
-        fps_raw = data.get("fps", 3.0)
+        fps_raw = data.get("fps", 1.0)
         api_key = None
         user_model = None
         username = user.get("username") if isinstance(user, dict) else None
@@ -634,9 +642,9 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
         try:
             fps = float(fps_raw)
             if fps != fps or fps <= 0:
-                fps = 3.0
+                fps = 1.0
         except Exception:
-            fps = 3.0
+            fps = 1.0
         if _is_qwen_model(normalized_model):
             # 千问视频输入只允许 0.5–3 fps
             fps = max(0.5, min(3.0, fps))
@@ -677,7 +685,11 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
 
         ui_lang_raw = handler.headers.get("X-UI-Lang", "") or data.get("ui_lang", "") or ""
         ui_lang = str(ui_lang_raw).strip().lower()
-        prompt_path = os.path.join("data", "ch_prompt.md")
+        long_video = bool(data.get("long_video"))
+        # 无周期长视频使用专用提示词；缺失时回退到默认模板，避免任务直接失败
+        prompt_path = os.path.join("data", "ch_prompt_long.md" if long_video else "ch_prompt.md")
+        if long_video and not os.path.exists(prompt_path):
+            prompt_path = os.path.join("data", "ch_prompt.md")
         if not os.path.exists(prompt_path):
             handler.send_json(
                 500,
@@ -783,6 +795,7 @@ def handle_analyze(handler, user: Dict[str, object]) -> bool:
                     "message": "任务已在后台启动",
                     "video_path": output_video_path,
                     "prompt_path": prompt_path,
+                    "long_video": long_video,
                     "resolved_model": normalized_model,
                     "ui_lang": ui_lang,
                 },

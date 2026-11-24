@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 from backend.app_config import APP_VERSION
 from backend.app_db_org import (
     add_result_revision,
+    count_analysis_results,
     get_result_revision,
     list_analysis_results_for_user,
     list_result_revisions,
@@ -62,7 +63,22 @@ def handle_list_results(handler, user: Optional[Dict[str, object]] = None, parse
             handler.send_json(200, {"files": ordered})
             return True
 
-        # 回退：DB 无记录（未跑迁移脚本），保持旧行为可用
+        # 指定了项目/产线作用域却查不到结果：说明该项目确实没有检测结果，直接返回空。
+        # 绝不能回退到目录扫描，否则会把其他项目的结果“串”到当前项目里。
+        if project_id or line_id:
+            handler.send_json(200, {"files": []})
+            return True
+
+        # 表内已有登记记录（新版库）：缺文件就视为空，同样不再回退目录扫描，
+        # 避免未登记的历史文件被当成“所有项目共有”。
+        try:
+            if count_analysis_results() > 0:
+                handler.send_json(200, {"files": []})
+                return True
+        except Exception:
+            logger.warning("统计分析结果行数失败", exc_info=True)
+
+        # 回退：DB 完全为空（未跑迁移脚本的旧库），保持旧行为可用
         legacy: List[str] = []
         if os.path.exists("result"):
             legacy = [f for f in os.listdir("result") if f.endswith((".json", ".mp4", ".md"))]

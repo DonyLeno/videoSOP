@@ -51,8 +51,20 @@ def _resolve_scope(parsed_path=None) -> Dict[str, Optional[int]]:
     return {"project_id": project_id, "line_id": line_id, "station_id": station_id}
 
 
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        value = int(str(raw).strip())
+    except Exception:
+        return default
+    return value if value >= minimum else default
+
+
 TARGET_VIDEO_BYTES = 100 * 1024 * 1024
-MAX_VIDEO_SECONDS = 180
+# 单视频最大时长（秒），超过会被裁剪。默认 600s（10 分钟），可用 MAX_VIDEO_SECONDS 调整。
+MAX_VIDEO_SECONDS = _env_int("MAX_VIDEO_SECONDS", 600)
 MAX_VIDEO_HEIGHT = 720
 
 
@@ -102,7 +114,7 @@ def normalize_video(
     max_height: int = MAX_VIDEO_HEIGHT,
     target_bytes: int = TARGET_VIDEO_BYTES,
 ) -> bool:
-    """统一转码一次：≤180s、高度≤720p、H.264/AAC、faststart，目标 ≤100MB。
+    """统一转码一次：时长≤MAX_VIDEO_SECONDS(默认600s)、高度≤720p、H.264/AAC、faststart，目标 ≤100MB。
 
     已是合规视频时直接返回；转码失败返回 False（保留原文件）。
     """
@@ -333,7 +345,7 @@ def handle_extract_frames(handler, user: dict) -> bool:
         video_fps = cap.get(cv2.CAP_PROP_FPS)
         if video_fps <= 0:
             video_fps = fps
-        max_seconds = 180.0
+        max_seconds = float(MAX_VIDEO_SECONDS)
         step = max(1, int(round(video_fps / fps)))
         base_name = os.path.splitext(os.path.basename(video_path))[0] or "frames"
         out_dir = os.path.join("data", base_name)

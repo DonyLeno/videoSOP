@@ -1,7 +1,7 @@
 import { t } from './i18n.js';
 import { authFetch, bindEnterToButton, currentUser, notify, refreshMe } from './core.js';
 import { formatBytes, formatModel, formatRole, formatStatus, formatTime, getBaseName, maskApiKey } from './format.js';
-import { formatSecondsShort } from './review.js';
+import { formatSecondsShort } from './review.js?v=20261124';
 
 let userCache = {};
 

@@ -2072,6 +2072,27 @@ body.login-active .sidebar-overlay {
 .detection-start {
   margin-top: 8px;
 }
+.detect-long-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.detect-long-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.detect-long-option-row {
+  margin: 0 6px 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .project-settings-grid {
   display: grid;
   grid-template-columns: 1fr;

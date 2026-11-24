@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import getpass
+import glob
 import json
 import os
 import random
@@ -10,6 +11,7 @@ import base64
 import io
 import mimetypes
 import subprocess
+import threading
 from typing import Any, Dict, List, Optional, TypedDict, Tuple, Union, Callable
 
 import cv2  # type: ignore
@@ -1793,6 +1795,65 @@ def analyze_video_openai(
             pass
 
 
+def _video_duration_seconds(path: str) -> float:
+    """用 ffprobe 读取视频时长（秒），失败返回 0。"""
+    try:
+        res = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return float(res.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+def _split_video_segments(video_path: str, segment_seconds: int) -> List[str]:
+    """按 segment_seconds 无损分段（对齐关键帧），返回分段文件路径列表。"""
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    prefix = os.path.join(_qwen_input_dir(), f"{base}_seg")
+    out_pattern = prefix + "%03d.mp4"
+    for old in glob.glob(prefix + "*.mp4"):
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    res = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+            "-f",
+            "segment",
+            "-segment_time",
+            str(segment_seconds),
+            "-c",
+            "copy",
+            "-reset_timestamps",
+            "1",
+            "-avoid_negative_ts",
+            "make_zero",
+            out_pattern,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    segs = sorted(glob.glob(prefix + "*.mp4")) if res.returncode == 0 else []
+    if not segs:
+        raise RuntimeError(f"视频分段失败: {_truncate_text(res.stderr, 400)}")
+    return segs
+
+
 def analyze_video_qwen(
     api_key: str,
     video_path: str,
@@ -1808,64 +1869,119 @@ def analyze_video_qwen(
     used_model = _normalize_model_name(model)
     base_url = _dashscope_base_url(api_key)
     dashscope.base_http_api_url = base_url
-    max_inline_bytes = _env_int("QWEN_MAX_INLINE_BYTES", 12 * 1024 * 1024)
-    video_uri, video_size, used_source = _qwen_video_data_uri(video_path, max_inline_bytes)
+    max_inline_bytes = _env_int("QWEN_MAX_INLINE_BYTES", 40 * 1024 * 1024)
+    seg_seconds = max(60, _env_int("QWEN_SEGMENT_SECONDS", 420))
 
-    print(
-        json.dumps(
-            {
-                "event": "qwen.chat_completions.request",
-                "model": used_model,
-                "requested_model": model,
-                "base_url": base_url,
-                "video_source": used_source,
-                "video_bytes": video_size,
-                "fps": sample_fps or None,
-            },
-            ensure_ascii=False,
-        ),
-        flush=True,
-    )
+    # 源视频统一转成 mp4 容器，便于按关键帧无损分段
+    src_path = video_path
+    if os.path.splitext(video_path)[1].lower() != ".mp4":
+        remuxed = _remux_to_mp4(video_path)
+        if not remuxed:
+            raise RuntimeError(f"无法把视频转封装为 mp4: {video_path}")
+        src_path = remuxed
+
+    duration = _video_duration_seconds(src_path)
+    # 超过单段时长（默认 7 分钟）则自动分段
+    if duration > seg_seconds + 5:
+        seg_paths = _split_video_segments(src_path, seg_seconds)
+    else:
+        seg_paths = [src_path]
+
+    def _fmt_ts(seconds: float) -> str:
+        s = int(max(0, round(seconds)))
+        h, rem = divmod(s, 3600)
+        m, sec = divmod(rem, 60)
+        return f"{h:d}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
+
+    # 各段实际起止时间（分段对齐关键帧，末段可能短于 segment_seconds）
+    seg_ranges: List[Tuple[float, float]] = []
+    acc = 0.0
+    for seg in seg_paths:
+        d = _video_duration_seconds(seg) or float(seg_seconds)
+        seg_ranges.append((acc, acc + d))
+        acc += d
+
     call_kwargs: Dict[str, Any] = {}
     if sample_fps and float(sample_fps) > 0:
         call_kwargs["fps"] = max(0.5, min(3.0, float(sample_fps)))
     # 默认关闭思考模式：开启后长 prompt + 视频容易超过 300s 读超时
     thinking_on = os.getenv("QWEN_ENABLE_THINKING", "").strip().lower() in ("1", "true", "yes", "on")
     call_kwargs["enable_thinking"] = thinking_on
-    try:
+    stream_mode = os.getenv("QWEN_STREAM", "1").strip().lower() not in ("0", "false", "no", "off")
+
+    def _chat(video_uri: str) -> Tuple[str, Any]:
         request_messages = [
             {
                 "role": "user",
                 "content": [{"video": video_uri}, {"text": prompt_text}],
             }
         ]
-        stream_mode = os.getenv("QWEN_STREAM", "1").strip().lower() not in ("0", "false", "no", "off")
-        response = None
-        if stream_mode:
-            # 流式读取：避免长输出触发 300s 读超时
-            parts: List[str] = []
-            for chunk in dashscope.MultiModalConversation.call(
-                api_key=api_key,
-                model=used_model,
-                messages=request_messages,
-                stream=True,
-                **call_kwargs,
-            ):
-                status = getattr(chunk, "status_code", 200)
-                if status != 200:
-                    raise RuntimeError(getattr(chunk, "message", f"stream status {status}"))
-                response = chunk
-                piece = ""
+        try:
+            if stream_mode:
+                # 流式读取：避免长输出触发 300s 读超时
+                parts: List[str] = []
+                response = None
+                started_at = time.time()
+                total_chars = 0
+                last_emit = 0.0
+                heartbeat_stop = threading.Event()
+
+                def _heartbeat() -> None:
+                    # 模型排队/预处理视频时可能长时间没有首包，定期输出心跳让前端看到任务仍在进行
+                    while not heartbeat_stop.wait(15):
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "qwen.chat_completions.waiting",
+                                    "model": used_model,
+                                    "elapsed": round(time.time() - started_at, 1),
+                                },
+                                ensure_ascii=False,
+                            ),
+                            flush=True,
+                        )
+
+                threading.Thread(target=_heartbeat, daemon=True).start()
                 try:
-                    piece = _dashscope_content_to_text(
-                        chunk.output.choices[0].message.content, strip=False
-                    )
-                except Exception:
-                    piece = ""
-                if piece:
-                    parts.append(piece)
-            content = "".join(parts)
-        else:
+                    for chunk in dashscope.MultiModalConversation.call(
+                        api_key=api_key,
+                        model=used_model,
+                        messages=request_messages,
+                        stream=True,
+                        **call_kwargs,
+                    ):
+                        status = getattr(chunk, "status_code", 200)
+                        if status != 200:
+                            raise RuntimeError(getattr(chunk, "message", f"stream status {status}"))
+                        response = chunk
+                        piece = ""
+                        try:
+                            piece = _dashscope_content_to_text(
+                                chunk.output.choices[0].message.content, strip=False
+                            )
+                        except Exception:
+                            piece = ""
+                        if piece:
+                            parts.append(piece)
+                            total_chars += len(piece)
+                            now = time.time()
+                            if now - last_emit >= 5.0:
+                                last_emit = now
+                                print(
+                                    json.dumps(
+                                        {
+                                            "event": "qwen.chat_completions.progress",
+                                            "model": used_model,
+                                            "chars": total_chars,
+                                            "elapsed": round(now - started_at, 1),
+                                        },
+                                        ensure_ascii=False,
+                                    ),
+                                    flush=True,
+                                )
+                finally:
+                    heartbeat_stop.set()
+                return "".join(parts), response
             response = dashscope.MultiModalConversation.call(
                 api_key=api_key,
                 model=used_model,
@@ -1876,51 +1992,107 @@ def analyze_video_qwen(
                 content = _dashscope_content_to_text(response.output.choices[0].message.content)
             except Exception:
                 content = _dashscope_content_to_text(getattr(response, "output", None))
+            return content, response
+        except Exception as e:
+            print(
+                json.dumps(
+                    {
+                        "event": "qwen.chat_completions.error",
+                        "model": used_model,
+                        "error": _truncate_text(str(e), 2000),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            raise RuntimeError(f"Qwen API request failed: {str(e)}")
+
+    seg_contents: List[str] = []
+    seg_infos: List[Dict[str, Any]] = []
+    prompt_tokens_total = 0
+    completion_tokens_total = 0
+    total_tokens_total = 0
+    for idx, seg in enumerate(seg_paths, 1):
+        video_uri, video_size, used_source = _qwen_video_data_uri(seg, max_inline_bytes)
+        start, end = seg_ranges[idx - 1]
         print(
             json.dumps(
                 {
-                    "event": "qwen.chat_completions.content",
+                    "event": "qwen.chat_completions.request",
                     "model": used_model,
                     "requested_model": model,
-                    "content_preview": _truncate_text(content, 2000),
+                    "base_url": base_url,
+                    "segment": idx,
+                    "segment_total": len(seg_paths),
+                    "segment_range": f"{_fmt_ts(start)}-{_fmt_ts(end)}",
+                    "video_source": used_source,
+                    "video_bytes": video_size,
+                    "fps": sample_fps or None,
                 },
                 ensure_ascii=False,
             ),
             flush=True,
         )
-    except Exception as e:
-        print(
-            json.dumps(
-                {
-                    "event": "qwen.chat_completions.error",
-                    "model": used_model,
-                    "error": _truncate_text(str(e), 2000),
-                },
-                ensure_ascii=False,
-            ),
-            flush=True,
+        content, response = _chat(video_uri)
+        seg_contents.append(content)
+        usage = getattr(response, "usage", None) if response is not None else None
+        if usage:
+            if isinstance(usage, dict):
+                seg_in = int(usage.get("input_tokens", 0) or 0)
+                seg_out = int(usage.get("output_tokens", 0) or 0)
+                seg_total = int(usage.get("total_tokens", 0) or 0)
+            else:
+                seg_in = int(getattr(usage, "input_tokens", 0) or 0)
+                seg_out = int(getattr(usage, "output_tokens", 0) or 0)
+                seg_total = int(getattr(usage, "total_tokens", 0) or 0)
+            prompt_tokens_total += seg_in
+            completion_tokens_total += seg_out
+            total_tokens_total += seg_total if seg_total else (seg_in + seg_out)
+        seg_infos.append(
+            {
+                "index": idx,
+                "range": f"{_fmt_ts(start)}-{_fmt_ts(end)}",
+                "path": used_source,
+                "bytes": video_size,
+                "compressed": os.path.basename(used_source).endswith("_inline.mp4"),
+            }
         )
-        raise RuntimeError(f"Qwen API request failed: {str(e)}")
+
+    if len(seg_contents) == 1:
+        content = seg_contents[0]
+    else:
+        merged: List[str] = [
+            f"> 视频时长 {_fmt_ts(duration)}，已按 {seg_seconds}s/段自动分段为 {len(seg_paths)} 段分别检测，以下按段汇总结果。",
+            "",
+        ]
+        for idx, seg_content in enumerate(seg_contents, 1):
+            start, end = seg_ranges[idx - 1]
+            merged.append(f"## 分段 {idx}（{_fmt_ts(start)}–{_fmt_ts(end)}）")
+            merged.append("")
+            merged.append(seg_content)
+            if idx < len(seg_contents):
+                merged.append("")
+                merged.append("---")
+                merged.append("")
+        content = "\n".join(merged)
+
+    print(
+        json.dumps(
+            {
+                "event": "qwen.chat_completions.content",
+                "model": used_model,
+                "requested_model": model,
+                "segments": len(seg_paths),
+                "content_preview": _truncate_text(content, 2000),
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
     video_name = output_stem or os.path.splitext(os.path.basename(video_path))[0]
     final_md_path = os.path.join("result", f"{video_name}.md")
     with open(final_md_path, "w", encoding="utf-8") as f:
         f.write(content)
-
-    usage = getattr(response, "usage", None) if response is not None else None
-    prompt_tokens_total: Optional[int] = 0
-    completion_tokens_total: Optional[int] = 0
-    total_tokens_total: Optional[int] = 0
-    if usage:
-        if isinstance(usage, dict):
-            prompt_tokens_total = int(usage.get("input_tokens", 0) or 0)
-            completion_tokens_total = int(usage.get("output_tokens", 0) or 0)
-            total_tokens_total = int(usage.get("total_tokens", 0) or 0)
-        else:
-            prompt_tokens_total = int(getattr(usage, "input_tokens", 0) or 0)
-            completion_tokens_total = int(getattr(usage, "output_tokens", 0) or 0)
-            total_tokens_total = int(getattr(usage, "total_tokens", 0) or 0)
-        if not total_tokens_total:
-            total_tokens_total = int((prompt_tokens_total or 0) + (completion_tokens_total or 0))
 
     actions: List[DetectedAction] = []
     computed_stats = compute_stats([])
@@ -1938,7 +2110,12 @@ def analyze_video_qwen(
     result = {
         "input": {"video_path": video_path},
         "model": {"requested": model, "used": used_model},
-        "file": {"name": "video", "uri": used_source, "mime_type": "video/mp4", "state": "processed"},
+        "file": {
+            "name": "video",
+            "uri": (seg_infos[0]["path"] if seg_infos else video_path),
+            "mime_type": "video/mp4",
+            "state": "processed",
+        },
         "prompt": prompt_text,
         "token_usage": usage_dict,
         "token_summary": {
@@ -1949,6 +2126,7 @@ def analyze_video_qwen(
         "model_output": model_output,
         "computed_stats": computed_stats,
         "actions": actions,
+        "segments": seg_infos,
         "created_at": time.time(),
     }
     return result, actions

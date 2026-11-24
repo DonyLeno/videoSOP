@@ -2331,7 +2331,7 @@ function setupDetectionUI() {
         model = 'kimi-2.5';
       }
       const fpsRaw = parseFloat(document.getElementById('detectFps')?.value);
-      const fps = Number.isFinite(fpsRaw) && fpsRaw > 0 ? fpsRaw : 3.0;
+      const fps = Number.isFinite(fpsRaw) && fpsRaw > 0 ? fpsRaw : 1.0;
       const log = document.getElementById('detectLog');
       const btn = document.getElementById('btnStartDetect');
       const thumbnailContainer = document.getElementById('thumbnailContainer');

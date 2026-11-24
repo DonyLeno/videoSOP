@@ -1,7 +1,7 @@
 import { currentLang, t } from './i18n.js';
 import { authFetch, bindEnterToButton, getThemeColor, notify, withMediaToken } from './core.js';
 import { scopeQueryString } from './scope.js';
-import { refreshDynamicText } from './detection.js';
+import { refreshDynamicText } from './detection.js?v=20261124';
 
 
 export let elVideo = null;
@@ -19,6 +19,92 @@ export let actionCountOverride = null;
 export let currentCycleSelection = null;
 
 export let clipStartSec = null;
+
+// 从前三块 Markdown 内容中模糊提取「改进建议」条目，
+// 作为后端 advice 字段缺失时的兜底，不依赖模型输出的标题层级或符号格式。
+function extractAdviceFromMarkdown(texts) {
+  const ADVICE_RE = /(问题点|建议点|改善点|改善建议|建议\s*\d|Kaizen|Recomm|Improv)/i;
+  const EXCLUDE_RE = /(限制|补拍|备注|置信度|证据|Notes|Limitations|Confidence|Evidence)/i;
+  const lines = texts
+    .filter(Boolean)
+    .join('\n')
+    .split('\n');
+  const items = [];
+  let cur = null;
+  const flush = () => {
+    if (!cur) return;
+    const text = cur.join('\n').trim();
+    cur = null;
+    if (text.replace(/[*_`#]/g, '').trim().length >= 8) items.push(text);
+  };
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const heading = trimmed.match(/^#{1,6}\s*(.+)$/);
+    if (heading) {
+      const title = heading[1];
+      if (EXCLUDE_RE.test(title)) {
+        flush();
+      } else if (ADVICE_RE.test(title)) {
+        flush();
+        cur = [title];
+      } else {
+        flush();
+      }
+      return;
+    }
+    const bullet = trimmed.match(/^[-*•+]\s+(.+)$/);
+    if (bullet) {
+      const text = bullet[1];
+      if (EXCLUDE_RE.test(text.replace(/[*_`]/g, '').slice(0, 12))) {
+        flush();
+      } else if (ADVICE_RE.test(text.replace(/[*_`]/g, '').slice(0, 24))) {
+        flush();
+        cur = [text];
+      } else if (cur) {
+        cur.push(text);
+      }
+      return;
+    }
+    if (cur) cur.push(trimmed);
+  });
+  flush();
+  return items.slice(0, 20);
+}
+
+function renderAdviceItems(container, items) {
+  if (!container) return false;
+  if (!items.length) {
+    container.innerHTML = `<div style="color:var(--muted)">${t('no_advice_data')}</div>`;
+    return false;
+  }
+  const escapeHtml = (s) =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  const formatLine = (line) => {
+    // 去掉行首列表符号与残留星号，再把 **加粗** / `代码` 转成 HTML，保证建议正文可读
+    const cleaned = String(line).replace(/^[-*•+]\s*/, '').replace(/^\s*\*\s*/, '');
+    return escapeHtml(cleaned)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*/g, '');
+  };
+  container.innerHTML = items
+    .map((item) => {
+      const lines = String(item)
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const body = lines.map((l) => `<p>${formatLine(l)}</p>`).join('');
+      return `<div class="advice-item">${body}</div>`;
+    })
+    .join('');
+  return true;
+}
+
 export let clipEndSec = null;
 export let clipEnforcing = false;
 export let elTimeline = null;
@@ -349,11 +435,60 @@ export async function persistActionsUpdate({ silentSuccess = false } = {}) {
   }
 }
 
+export function getVideoDuration() {
+  const d = Number(elVideo && elVideo.duration);
+  return Number.isFinite(d) && d > 0 ? d : null;
+}
+
 export function clampToClip(t) {
-  const x = Number(t);
+  let x = Number(t);
   if (!Number.isFinite(x)) return x;
-  if (clipStartSec === null || clipEndSec === null) return x;
-  return Math.min(Number(clipEndSec), Math.max(Number(clipStartSec), x));
+  if (clipStartSec !== null && clipEndSec !== null) {
+    x = Math.min(Number(clipEndSec), Math.max(Number(clipStartSec), x));
+  }
+  const dur = getVideoDuration();
+  if (dur !== null) x = Math.min(dur, Math.max(0, x));
+  return x;
+}
+
+/**
+ * 兜底对齐：若时间段整体落在视频时长之外（模型把墙钟时间写进了时间段），
+ * 按“首个动作起点”平移整条时间轴，避免播放头被钳在视频末尾造成假死。
+ */
+export function realignTimelineToVideo(list, range) {
+  const dur = getVideoDuration();
+  if (!dur || !range) return range;
+  const start = Number(range.start);
+  const end = Number(range.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !(end > start)) return range;
+  if (end <= dur) return range; // 正常落在视频内
+  const span = end - start;
+  if (span > dur * 1.5) return range; // 跨度远超视频，无法安全对齐
+  const offset = start;
+  if (!(offset > 0)) return range;
+  if (end - offset > dur + 1) return range;
+
+  for (const act of list) {
+    if (!act || typeof act !== 'object') continue;
+    const s = Number.parseFloat(act.start_time);
+    const e = Number.parseFloat(act.end_time);
+    if (Number.isFinite(s)) act.start_time = Math.max(0, s - offset);
+    if (Number.isFinite(e)) act.end_time = Math.max(0, e - offset);
+    if (typeof act.time_range === 'string' && act.time_range) {
+      const m = act.time_range.match(/^(\d+(?:\.\d+)?)\s*[-–—~～]\s*(\d+(?:\.\d+)?)/);
+      if (m) {
+        act.time_range = `${Math.max(0, Number(m[1]) - offset).toFixed(2)} - ${Math.max(0, Number(m[2]) - offset).toFixed(2)}`;
+      }
+    }
+  }
+  if (currentCycleSelection && currentCycleSelection.range) {
+    const r = currentCycleSelection.range;
+    if (Number.isFinite(r.start) && Number.isFinite(r.end)) {
+      currentCycleSelection.range = { start: Math.max(0, r.start - offset), end: Math.max(0, r.end - offset) };
+    }
+  }
+  notify(t('timeline_realigned', { offset: formatSecondsShort(offset) }));
+  return getActionsTimeRange(list) || { start: 0, end: dur };
 }
 
 export function enforceClipRange() {
@@ -365,6 +500,8 @@ export function enforceClipRange() {
   const e = Number(clipEndSec);
   const t = Number(elVideo.currentTime);
   if (!Number.isFinite(t)) return;
+  const dur = getVideoDuration();
+  if (dur !== null && s >= dur) return; // 区间整体越界：放弃强制，等时间轴重新对齐
   clipEnforcing = true;
   try {
     if (t < s) {
@@ -454,7 +591,7 @@ export function renderActionTimeline(actions) {
   elTimelineSegments.innerHTML = '';
   if (elTimelineHandles) elTimelineHandles.innerHTML = '';
 
-  const range =
+  let range =
     currentCycleSelection &&
     currentCycleSelection.range &&
     Number.isFinite(currentCycleSelection.range.start) &&
@@ -466,6 +603,17 @@ export function renderActionTimeline(actions) {
     clearClipRange();
     updateTimelinePlayhead();
     return;
+  }
+
+  // 墙钟时间兜底对齐（正常情况下后端已完成归一化，这里只处理历史/异常数据）
+  range = realignTimelineToVideo(list, range);
+  const videoDur = getVideoDuration();
+  if (videoDur !== null) {
+    const s0 = Math.max(0, Math.min(videoDur, Number(range.start)));
+    const e0 = Math.max(s0 + 0.001, Math.min(videoDur, Number(range.end)));
+    if (e0 > s0 && (s0 !== Number(range.start) || e0 !== Number(range.end))) {
+      range = { start: s0, end: e0 };
+    }
   }
 
   const shouldSeek =
@@ -681,6 +829,63 @@ export function adjustBoundaryFromClientX(clientX) {
   updateTimelineHandleStyle(draggingBoundary.el, t);
 }
 
+/** 清空结果查看区（切换项目/切走结果时的兜底，避免上一个项目的内容残留） */
+export function clearResultView(hintText = '') {
+  currentActions = [];
+  currentActionEls = [];
+  currentActionsHeaders = [];
+  actionCountOverride = null;
+  currentCycleSelection = null;
+  activeIndex = -1;
+  clipStartSec = null;
+  clipEndSec = null;
+  if (elTimelineSegments) elTimelineSegments.innerHTML = '';
+  if (elTimelineHandles) elTimelineHandles.innerHTML = '';
+  if (elTimelinePlayhead) elTimelinePlayhead.style.left = '0%';
+  if (elActions) {
+    elActions.innerHTML = hintText
+      ? `<div class="action-empty-hint" style="padding:16px;color:var(--muted);font-size:13px;">${hintText}</div>`
+      : '';
+  }
+  if (elActionCount) elActionCount.textContent = '0';
+  if (elActiveAction) elActiveAction.textContent = '-';
+  if (elNowPlaying) elNowPlaying.textContent = '00:00';
+  const md = document.getElementById('mdResultView');
+  if (md) {
+    md.style.display = 'none';
+    // 只清叶子容器，保留面板骨架（整块清空会让后续渲染找不到 mdOverview/mdKaizen/mdAdvice）
+    ['mdOverview', 'mdDeepDive', 'mdKaizen', 'mdAdvice'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '';
+    });
+  }
+  const legacy = document.getElementById('legacyStatsView');
+  if (legacy) legacy.style.display = 'none';
+  // 结果派生的图表/缩略图一并清掉，否则会残留上一个项目的数据
+  try {
+    renderVaNvaStats([]);
+  } catch {}
+  currentThumbs = [];
+  currentThumbsPath = '';
+  const scChart = document.getElementById('stationCompareChart');
+  if (scChart) scChart.innerHTML = '';
+  const scControls = document.getElementById('stationCompareControls');
+  if (scControls) scControls.innerHTML = '';
+}
+
+function detachVideo() {
+  if (!elVideo) return;
+  try {
+    elVideo.pause();
+  } catch {}
+  try {
+    elVideo.removeAttribute('src');
+    elVideo.load();
+  } catch {}
+  const name = document.getElementById('videoName');
+  if (name) name.textContent = t('review_no_video');
+}
+
 export async function loadResultList() {
   const resSel = document.getElementById('reviewResultSelect');
   const vidSel = document.getElementById('reviewVideoSelect');
@@ -703,11 +908,34 @@ export async function loadResultList() {
       else if (f.endsWith('.mp4')) vidSel.appendChild(opt.cloneNode(true));
     });
 
-    if (oldRes) {
+    // 当前已渲染的结果优先保留：检测完成后会并发多次刷新列表，
+    // 后到的旧快照不能把刚选中的结果清掉（否则 md 视图与建议面板会被隐藏）
+    const hasActive =
+      Boolean(currentJsonPath) && Array.from(resSel.options).some((o) => o.value === currentJsonPath);
+    // 只在选项仍然存在时恢复旧选中；切项目后旧文件通常已不在列表里
+    const hasRes = Boolean(oldRes) && Array.from(resSel.options).some((o) => o.value === oldRes);
+    const hasVid = Boolean(oldVid) && Array.from(vidSel.options).some((o) => o.value === oldVid);
+
+    if (hasActive) {
+      resSel.value = currentJsonPath;
+    } else if (hasRes) {
       resSel.value = oldRes;
       currentJsonPath = oldRes;
+    } else {
+      resSel.value = '';
+      currentJsonPath = '';
     }
-    if (oldVid) vidSel.value = oldVid;
+
+    if (hasVid) {
+      vidSel.value = oldVid;
+    } else {
+      vidSel.value = '';
+      detachVideo();
+    }
+
+    if (!hasActive && !hasRes) {
+      clearResultView((vidSel.options.length <= 1 && t('review_no_results_in_project')) || '');
+    }
   } catch (e) {
     console.error(e);
   }
@@ -945,6 +1173,40 @@ export function renderMdView(data) {
   setMd('mdOverview', data.overview || '');
   setMd('mdDeepDive', data.deep_dive || '');
   setMd('mdKaizen', data.kaizen || '');
+
+  // 改进建议：优先后端 advice（对整篇结果模糊提取），缺失时前端再兜底提取，
+  // 保证不依赖模型输出的章节名与标记格式
+  let adviceItems = Array.isArray(data.advice)
+    ? data.advice.map((x) => String(x || '').trim()).filter(Boolean)
+    : [];
+  if (!adviceItems.length) {
+    adviceItems = extractAdviceFromMarkdown([data.kaizen, data.deep_dive, data.overview]);
+  }
+  // 页面模板若被缓存成旧版本（没有 mdAdvice），这里动态补出建议面板，避免整块内容不可见
+  let adviceEl = document.getElementById('mdAdvice');
+  if (!adviceEl && md) {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML =
+      `<div class="panel-header">${t('process_advice')}</div>` +
+      `<div class="panel-body md-content" id="mdAdvice"></div>`;
+    md.appendChild(panel);
+    adviceEl = panel.querySelector('#mdAdvice');
+  }
+  const rendered = renderAdviceItems(adviceEl, adviceItems);
+  if (!rendered && adviceItems.length) {
+    // 面板节点仍缺失时（极端旧模板），把建议追加到改善机会区块，避免内容不可见
+    const kaizenEl = document.getElementById('mdKaizen');
+    if (kaizenEl) {
+      kaizenEl.insertAdjacentHTML(
+        'beforeend',
+        `<h3>${t('process_advice')}</h3>` +
+          adviceItems.map((item) => `<div class="advice-item"><p>${item.replace(/\*\*/g, '')}</p></div>`).join('')
+      );
+    }
+  }
+  // 同步补齐旧版建议容器，避免布局切换时内容为空
+  renderAdviceItems(document.getElementById('adviceList'), adviceItems);
 }
 
 export const STATION_COMPARE_MAX = 12;
@@ -2136,6 +2398,18 @@ export function setupReviewUI() {
     });
     elVideo.addEventListener('loadedmetadata', () => {
       const d = Number(elVideo.duration);
+      // 元数据晚于时间轴渲染时，clip 可能整条越界（墙钟时间），重新渲染以触发对齐
+      if (
+        Number.isFinite(d) &&
+        d > 0 &&
+        clipStartSec !== null &&
+        Number(clipStartSec) >= d &&
+        Array.isArray(currentActions) &&
+        currentActions.length
+      ) {
+        renderActionTimeline(currentActions);
+        return;
+      }
       if (Number.isFinite(d) && d > 0 && clipStartSec !== null && clipEndSec !== null) {
         const s0 = Number(clipStartSec);
         const e0 = Number(clipEndSec);

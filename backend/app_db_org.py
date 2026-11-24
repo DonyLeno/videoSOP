@@ -1274,6 +1274,15 @@ def get_analysis_result_by_md(md_path: str) -> Optional[Dict[str, object]]:
     return _exec("SELECT * FROM analysis_results WHERE md_path=?", (md_path,), fetch="one")
 
 
+def count_analysis_results() -> int:
+    """analysis_results 表总行数；0 表示尚未迁移/登记的旧库。"""
+    row = _exec("SELECT COUNT(*) AS n FROM analysis_results", fetch="one")
+    try:
+        return int((row or {}).get("n") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def list_analysis_results_for_user(
     username: str,
     role: Optional[str] = None,

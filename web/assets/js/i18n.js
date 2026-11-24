@@ -1,5 +1,5 @@
-import { refreshDynamicText } from './detection.js';
-import { autoSelectResultByVideoPrefix } from './review.js';
+import { refreshDynamicText } from './detection.js?v=20261124';
+import { autoSelectResultByVideoPrefix } from './review.js?v=20261124';
 
 export function brandReplace(text) {
   return String(text).replace(/gemini/gi, 'Geniview');
@@ -147,6 +147,8 @@ export const I18N = {
     cost_formula_note:
       '说明：P 为固定提示词/结构化输出等估算 tokens；k 为每帧视觉 token 估算系数；Think 为“思考/推理 tokens”估算（按输出单价计）。',
     start_detect: '开始检测与标注',
+    detect_long_video: '无周期长视频',
+    detect_long_video_hint: '勾选后使用无周期长视频专用提示词（适合连续长镜头、无固定节拍）。',
     merge: '合并动作',
     merging: '合并中...',
     prepare_text: '准备中...',
@@ -158,6 +160,7 @@ export const I18N = {
     review_select_video: '选择视频文件...',
     refresh: '刷新',
     review_no_video: '未选择视频',
+    review_no_results_in_project: '当前项目暂无检测结果。检测在哪个项目执行，结果就在哪个项目查看。',
     review_actions: '动作 <span class="pill" id="actionCount">0</span>',
     time_range: '时间段',
     stat_total_actions: '动作总数',
@@ -236,6 +239,7 @@ export const I18N = {
     unknown_error: 'Unknown error',
     result_not_found: '未找到对应的结果文件，请重新选择视频。',
     save_success: '保存成功',
+    timeline_realigned: '时间段疑似为墙钟时间，时间轴已按视频起点自动对齐（偏移 {offset}）',
     save_failed_with_error: '保存失败: {error}',
     load_failed_with_status: '加载失败: {url} ({status})',
     page_load_failed: '页面加载失败: {error}',
@@ -595,6 +599,8 @@ export const I18N = {
     cost_formula_note:
       'Note: P is fixed prompt/structured output estimate; k is vision token factor per frame; Think is estimated reasoning tokens (priced at output rate).',
     start_detect: 'Start Detection & Labeling',
+    detect_long_video: 'Long video (no cycle)',
+    detect_long_video_hint: 'Uses the long-video prompt for continuous footage without a fixed cycle.',
     merge: 'Merge Actions',
     merging: 'Merging...',
     prepare_text: 'Preparing...',
@@ -606,6 +612,7 @@ export const I18N = {
     review_select_video: 'Select video file...',
     refresh: 'Refresh',
     review_no_video: 'No video selected',
+    review_no_results_in_project: 'No detection results in this project yet. Results are viewable only in the project where the detection ran.',
     review_actions: 'Actions <span class="pill" id="actionCount">0</span>',
     time_range: 'Time Range',
     stat_total_actions: 'Total Actions',
@@ -684,6 +691,7 @@ export const I18N = {
     unknown_error: 'Unknown error',
     result_not_found: 'Result file not found. Please reselect the video.',
     save_success: 'Saved successfully',
+    timeline_realigned: 'Time ranges look like wall-clock time. Timeline was realigned to the video start (offset {offset}).',
     save_failed_with_error: 'Save failed: {error}',
     load_failed_with_status: 'Load failed: {url} ({status})',
     page_load_failed: 'Page load failed: {error}',

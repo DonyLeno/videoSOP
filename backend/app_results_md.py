@@ -1,9 +1,11 @@
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 def _parse_time_str(t_str: str) -> float:
     t_str = str(t_str).strip()
+    # 去掉 Markdown 反引号/引号/括号等包裹字符（如 `0:00`、"0:00"），只保留时间本体
+    t_str = re.sub(r"^[^\d]+", "", t_str)
     t_str = re.sub(r"[^\d:.]+$", "", t_str)
     try:
         return float(t_str)
@@ -13,18 +15,104 @@ def _parse_time_str(t_str: str) -> float:
     if len(parts) == 3:
         return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
     if len(parts) == 2:
+        # 动作时间段统一按 分:秒 解析（6:05 = 365s）。
+        # 旧逻辑对 a>2 走 "a + b/100" 小数兜底，会把 6:05 变成 6.05 秒，导致长视频时间轴被压缩。
         a_raw, b_raw = parts[0].strip(), parts[1].strip()
-        a = float(a_raw)
-        if "." in b_raw:
-            b = float(b_raw)
-            return a * 60 + b
-        b = float(b_raw)
-        if a <= 2 and 0 <= b <= 59:
-            return a * 60 + b
-        if 0 <= b <= 99:
-            return a + b / 100.0
-        return a * 60 + b
+        return float(a_raw) * 60 + float(b_raw)
     raise ValueError(f"Invalid time format: {t_str}")
+
+
+_RE_HMS = re.compile(r"(?<!\d)(\d{1,2}):([0-5]\d):([0-5]\d)(?!\d)")
+# “墙钟时间”线索：出现这些字样说明时间是画面烧录的真实时刻，而非相对视频起点
+_RE_WALLCLOCK_HINT = re.compile(r"(时间戳|墙钟|画面右下角|画面右上角|视频起点|视频开始时间|\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2})")
+_RE_DECLARED_START = (
+    # “时间戳 13:38:55 至 13:41:51” / “视频时间：13:38:55”
+    re.compile(r"(?:时间戳|时间范围|视频时间|起始时间|开始时间|起点)[^\d\n]{0,12}(\d{1,2}):([0-5]\d):([0-5]\d)"),
+    # “13:38:55 至 13:41:51” 这种成对区间
+    re.compile(r"(?<!\d)(\d{1,2}):([0-5]\d):([0-5]\d)\s*(?:至|到|–|—|-|~|～)\s*\d{1,2}:[0-5]\d:[0-5]\d"),
+)
+
+
+def _hms_to_seconds(h: str, m: str, s: str) -> float:
+    return float(h) * 3600 + float(m) * 60 + float(s)
+
+
+def _declared_video_start(content: str) -> float:
+    """从正文中提取“视频起点墙钟”，找不到返回 -1。"""
+    text = str(content or "")
+    for pattern in _RE_DECLARED_START:
+        m = pattern.search(text)
+        if m:
+            try:
+                return _hms_to_seconds(m.group(1), m.group(2), m.group(3))
+            except Exception:
+                continue
+    return -1.0
+
+
+def _min_doc_timestamp(content: str) -> float:
+    """全文出现的最早 HH:MM:SS，找不到返回 -1。"""
+    values = []
+    for m in _RE_HMS.finditer(str(content or "")):
+        try:
+            values.append(_hms_to_seconds(m.group(1), m.group(2), m.group(3)))
+        except Exception:
+            continue
+    return min(values) if values else -1.0
+
+
+def normalize_wallclock_actions(content: str, actions: List[Dict[str, object]]) -> Dict[str, object]:
+    """把“墙钟绝对时间”的时间段归一化为“相对视频起点”的秒数（原地修改）。
+
+    模型有时把画面右下角烧录的墙钟时间（如 13:40:18）直接写进时间段，按 HH:MM:SS
+    解析后会变成 49218 秒，远超视频时长，导致时间轴量程与播放头全部越界。
+    这里以正文声明的视频起点（兜底：全文最早时间戳 / 首个动作起点）为基准做平移。
+    """
+    info: Dict[str, object] = {"applied": False, "offset": 0.0, "basis": ""}
+    valid: List[Dict[str, object]] = []
+    for act in actions or []:
+        try:
+            s = float(act.get("start_time") or 0)
+            e = float(act.get("end_time") or 0)
+        except (TypeError, ValueError):
+            continue
+        if e > s:
+            valid.append(act)
+    if not valid:
+        return info
+
+    min_start = min(float(a["start_time"]) for a in valid)
+    # 起点都不到 1 小时，说明本来就是相对时间，无需处理
+    if min_start < 3600:
+        return info
+
+    candidates = []
+    declared = _declared_video_start(content)
+    if declared >= 0:
+        candidates.append((declared, "declared_start"))
+    doc_min = _min_doc_timestamp(content)
+    if doc_min >= 0:
+        candidates.append((doc_min, "doc_min"))
+    # 基准必须早于首个动作，且相差不超过 1 小时（超过则判定为无关时间戳，弃用）
+    accepted = [c for c in candidates if 0 < c[0] <= min_start and (min_start - c[0]) <= 3600]
+    if accepted:
+        offset, basis = min(accepted, key=lambda c: c[0])
+    else:
+        # 无可靠基准时，仅在文档确有“墙钟时间”线索时才兜底平移，
+        # 避免把超过 1 小时的超长视频（相对时间本就 >3600s）误判成墙钟。
+        if not _RE_WALLCLOCK_HINT.search(str(content or "")):
+            return info
+        offset, basis = min_start, "first_action"
+
+    if offset <= 0:
+        return info
+
+    for act in valid:
+        act["start_time"] = max(0.0, float(act["start_time"]) - offset)
+        act["end_time"] = max(0.0, float(act["end_time"]) - offset)
+
+    info.update({"applied": True, "offset": float(offset), "basis": basis})
+    return info
 
 
 def normalize_md_content(content: str) -> str:
@@ -41,7 +129,168 @@ def normalize_md_content(content: str) -> str:
     text = re.sub(r"\|\|(?=[ \t]*\d{1,2}[ \t]*\|[ \t]*\d{1,3}[ \t]*\|)", "|\n|", text)
     # 表头与分隔行被粘连，如 “… || :--- | …”
     text = re.sub(r"\|\|(?=[ \t]*:?-{3,})", "|\n|", text)
+    # 建议条目与子项被粘连成一行，如 “***问题点1: …*****关联动作编号:** …”
+    text = re.sub(
+        r"(?<!\n)\*{2,}\s*(问题点|建议点|改善点|关联动作|改善对策|预期收益|实施难度|验证方法|优先级|推荐)",
+        r"\n* \1",
+        text,
+    )
+    # 行首多余星号，如 “***问题点2: …”
+    text = re.sub(r"(?m)^\*{2,}(?=\S)", "* ", text)
+    # 只剩列表符号的空行（模型把 “*   **问题点” 拆开后残留）
+    text = re.sub(r"(?m)^[ \t]*[*•+][ \t]*$\n?", "", text)
     return text
+
+
+_ADVICE_SECTION_RE = re.compile(
+    r"(改善建议|改进建议|优化建议|建议|对策|Kaizen|Recommendation|Improvement|Opportunit)",
+    re.IGNORECASE,
+)
+_ADVICE_WEAK_RE = re.compile(r"(改善|改进|优化|提升)", re.IGNORECASE)
+# 报告标题、概览/诊断/浪费识别等章节虽含「改善」字样，但不是建议正文，需排除
+_ADVICE_TITLE_EXCLUDE_RE = re.compile(
+    r"(报告|分析|概览|Overview|诊断|识别|动作|Motion|Therblig|浪费|Muda)",
+    re.IGNORECASE,
+)
+_ADVICE_EXCLUDE_RE = re.compile(
+    r"(限制|补拍|备注|置信度|证据|Notes|Limitations|Confidence|Evidence)", re.IGNORECASE
+)
+_ADVICE_ITEM_RE = re.compile(
+    r"^(问题点|建议点|改善点|改善建议|改善措施|优化措施|对策|问题\s*\d|建议\s*\d|改善\s*\d|\d+[).、]\s*\S)",
+    re.IGNORECASE,
+)
+
+
+def _strip_md_marks(text: str) -> str:
+    cleaned = re.sub(r"\*\*|__|`", "", str(text or "")).strip()
+    return re.sub(r"^[\s*]+|[\s*]+$", "", cleaned)
+
+
+def extract_advice_items(content: str) -> List[str]:
+    """模糊提取「改进建议」条目，不依赖模型输出的具体标题层级或符号。
+
+    策略：
+    1. 按标题切块，找出标题含 改善/建议/优化/Kaizen 等关键词的章节；
+    2. 章节内以子标题或顶层 bullet 作为条目边界，子项并入当前条目；
+    3. 若整篇找不到该类章节，退化为扫描含「建议/改善/优化/对策」的 bullet。
+    """
+    text = normalize_md_content(content)
+    lines = text.splitlines()
+    headings: List[tuple] = []
+    for i, line in enumerate(lines):
+        m = re.match(r"^(#{1,6})\s*(\S.*)$", line)
+        if m:
+            headings.append((i, len(m.group(1)), m.group(2).strip()))
+    if not headings:
+        return []
+
+    blocks: List[tuple] = []
+    for pos, (idx, level, title) in enumerate(headings):
+        end = len(lines)
+        for idx2, level2, _title2 in headings[pos + 1 :]:
+            if level2 <= level:
+                end = idx2
+                break
+        blocks.append((level, title, idx, end))
+
+    def collect(base_level: int, start: int, end: int) -> List[str]:
+        items: List[str] = []
+        title: Optional[str] = None
+        body: List[str] = []
+
+        def flush() -> None:
+            nonlocal title, body
+            if title is None and not body:
+                return
+            if title and _ADVICE_EXCLUDE_RE.search(title):
+                title, body = None, []
+                return
+            head = _strip_md_marks(title) if title else ""
+            content_text = "\n".join(body).strip()
+            merged = f"**{head}**\n{content_text}".strip() if head else content_text
+            merged = merged.strip()
+            # 跳过章节引导语，如「基于 ECRS 原则提出以下建议：」
+            if title is None and _strip_md_marks(merged).rstrip().endswith(("：", ":")):
+                title, body = None, []
+                return
+            if len(_strip_md_marks(merged)) >= 8:
+                items.append(merged)
+            title, body = None, []
+
+        for line in lines[start:end]:
+            trimmed = line.strip()
+            if not trimmed:
+                if body:
+                    body.append("")
+                continue
+            heading = re.match(r"^(#{1,6})\s*(.*)$", trimmed)
+            if heading and len(heading.group(1)) > base_level:
+                flush()
+                title = heading.group(2).strip()
+                continue
+            bullet = re.match(r"^[-*•+]\s+(.*)$", trimmed)
+            if bullet:
+                bullet_text = bullet.group(1).strip()
+                if _ADVICE_ITEM_RE.search(_strip_md_marks(bullet_text)):
+                    flush()
+                    title = bullet_text
+                elif title is None and not body and len(_strip_md_marks(bullet_text)) >= 8:
+                    title = bullet_text
+                else:
+                    body.append(bullet_text)
+                continue
+            body.append(trimmed)
+        flush()
+        return items
+
+    result: List[str] = []
+    seen = set()
+    # 只把二级及以下的标题当作建议章节（一级标题通常是整篇报告名，会把全文误当成一个章节）；
+    # 同时优先「改善建议/建议/对策」类强关键词，避免选中「改善方向」这类概述章节
+    candidates: List[tuple] = []
+    for base_level, title, start, end in blocks:
+        if base_level < 2 or end - start < 2:
+            continue
+        title_clean = _strip_md_marks(title)
+        if _ADVICE_EXCLUDE_RE.search(title_clean) or _ADVICE_TITLE_EXCLUDE_RE.search(title_clean):
+            continue
+        strong = bool(_ADVICE_SECTION_RE.search(title_clean))
+        weak = bool(_ADVICE_WEAK_RE.search(title_clean))
+        if not (strong or weak):
+            continue
+        collected = collect(base_level, start + 1, end)
+        if not collected:
+            continue
+        candidates.append((0 if strong else 1, -len(collected), collected))
+
+    if candidates:
+        candidates.sort(key=lambda x: (x[0], x[1]))
+        for item in candidates[0][2]:
+            key = _strip_md_marks(item)[:40]
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(item)
+    if result:
+        return result[:20]
+
+    # 兜底：全篇扫描含建议类关键词的 bullet
+    for line in lines:
+        m = re.match(r"^\s*[-*•+]\s+(.*)$", line)
+        if not m:
+            continue
+        item = _strip_md_marks(m.group(1))
+        if len(item) < 8:
+            continue
+        if not re.search(r"(改善对策|改善建议|建议|推荐|优化措施|对策|实施)", item):
+            continue
+        if item[:40] in seen:
+            continue
+        seen.add(item[:40])
+        result.append(f"**{item}**")
+        if len(result) >= 20:
+            break
+    return result
 
 
 def parse_md_content(content: str) -> Dict[str, object]:
@@ -62,6 +311,7 @@ def parse_md_content(content: str) -> Dict[str, object]:
     re_actions = re.compile(r"^#{1,6}\s*.*(动作分析|Motion Breakdown|Motion Analysis)", re.IGNORECASE)
     re_deep_dive = re.compile(r"^#{1,6}\s*.*(深度诊断|Deep Dive|DeepDive)", re.IGNORECASE)
     re_kaizen = re.compile(r"^#{1,6}\s*.*(改善|Kaizen)", re.IGNORECASE)
+    re_sub_point = re.compile(r"^#{3,6}\s*(问题点|建议点|改善点)")
     re_waste = re.compile(r"^#{1,6}\s*.*(浪费|Muda)", re.IGNORECASE)
     re_therbligs = re.compile(r"^#{1,6}\s*.*(动素|Therblig)", re.IGNORECASE)
     re_supplement = re.compile(r"^#{1,6}\s*.*(补充|Supplement)", re.IGNORECASE)
@@ -83,6 +333,12 @@ def parse_md_content(content: str) -> Dict[str, object]:
             else:
                 if current_section is None:
                     preface_lines.append(line)
+        # 「问题点」等子标题归属当前章节（改善机会/深度诊断），必须先于
+        # 「浪费」「动素」等关键词正则判断，否则含「浪费」的问题点会被误切走
+        if re_sub_point.match(line):
+            if current_section in ("kaizen", "deep_dive"):
+                sections[current_section] = str(sections.get(current_section) or "") + line + "\n"
+                continue
         if re_overview.match(line):
             current_section = "overview"
             continue
@@ -102,6 +358,11 @@ def parse_md_content(content: str) -> Dict[str, object]:
             current_section = "kaizen"
             continue
         if re.match(r"^#{1,6}\s*\S", line):
+            # 未归类的子标题（###~######）跟随当前章节，避免「问题点」「1) 稳定性」
+            # 等子标题把内容切回工序概览；未归类的一级/二级标题仍归入概览兜底
+            if current_section in ("kaizen", "deep_dive") and re.match(r"^#{3,6}\s", line):
+                sections[current_section] = str(sections.get(current_section) or "") + line + "\n"
+                continue
             # 未归类的标题：保留到工序概览，避免正文丢失
             current_section = "overview"
             sections["overview"] = str(sections.get("overview") or "") + line + "\n"
@@ -272,6 +533,9 @@ def parse_md_content(content: str) -> Dict[str, object]:
         sections["actions_table"] = {"headers": header_cells, "rows": table_rows}
 
     sections["actions"] = actions
+    sections["time_normalization"] = normalize_wallclock_actions(
+        normalize_md_content(content), actions
+    )
     preface = "\n".join(preface_lines).strip()
     overview = str(sections.get("overview") or "").strip()
     if preface:
@@ -280,6 +544,8 @@ def parse_md_content(content: str) -> Dict[str, object]:
         sections["overview"] = overview
     sections["deep_dive"] = str(sections.get("deep_dive") or "").strip()
     sections["kaizen"] = str(sections.get("kaizen") or "").strip()
+    # 改进建议：对整篇 Markdown 做模糊提取，不依赖具体章节名与标记格式
+    sections["advice"] = extract_advice_items(content)
     return sections
 
 

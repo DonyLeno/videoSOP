@@ -2,7 +2,7 @@ import { currentLang, t } from './i18n.js';
 import { appendLog, authFetch, currentUser, getToken, notify, setLog, switchTab, updateSidebarUserText, withMediaToken } from './core.js';
 import { uploadVideoWithProgress } from './format.js';
 import { currentScope, scopeQueryString } from './scope.js';
-import { actionCountOverride, autoSelectResultByVideoPrefix, currentActions, loadResultList } from './review.js';
+import { actionCountOverride, autoSelectResultByVideoPrefix, currentActions, loadResultList } from './review.js?v=20261124';
 
 
 export async function loadVideoList() {
@@ -133,7 +133,7 @@ export function setupDetectionUI() {
     const priceIn = parseFloat(opt.dataset.priceIn);
     const priceOut = parseFloat(opt.dataset.priceOut);
 
-    const fps = Math.min(3, Math.max(0.5, parseFloat(fpsInput.value) || 2.0));
+    const fps = Math.min(3, Math.max(0.5, parseFloat(fpsInput.value) || 1.0));
     const tokensPerFrame = 258;
     const promptTokens = 800;
     const effectiveDuration = Math.min(selectedVideoDuration, 180);
@@ -306,7 +306,8 @@ export function setupDetectionUI() {
         model = 'kimi-2.5';
       }
       const fpsRaw = parseFloat(document.getElementById('detectFps')?.value);
-      const fps = Number.isFinite(fpsRaw) ? Math.min(3, Math.max(0.5, fpsRaw)) : 2.0;
+      const fps = Number.isFinite(fpsRaw) ? Math.min(3, Math.max(0.5, fpsRaw)) : 1.0;
+      const longVideo = Boolean(document.getElementById('detectLongVideo')?.checked);
       const log = document.getElementById('detectLog');
       const btn = document.getElementById('btnStartDetect');
       const thumbnailContainer = document.getElementById('thumbnailContainer');
@@ -344,6 +345,7 @@ export function setupDetectionUI() {
               video_path: videoPath,
               model,
               fps,
+              long_video: longVideo,
               ui_lang: currentLang || 'zh',
               project_id: currentScope.project_id || undefined,
               line_id: currentScope.line_id || undefined
@@ -365,6 +367,7 @@ export function setupDetectionUI() {
             video_path: videoPath,
             model,
             fps,
+            long_video: longVideo,
             ui_lang: uiLang,
             project_id: currentScope.project_id || undefined,
             line_id: currentScope.line_id || undefined

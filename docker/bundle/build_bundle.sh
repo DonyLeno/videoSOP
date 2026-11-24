@@ -38,22 +38,31 @@ echo "[2/5] 迁移 MySQL 数据到 SQLite"
 rm -f "${CTX_DIR}/data/geniview.sqlite3"
 PYTHONPATH="${ROOT_DIR}" python3 "${SCRIPT_DIR}/migrate_to_sqlite.py" "${CTX_DIR}/data/geniview.sqlite3"
 
-echo "[3/5] 预下载 amd64 依赖 wheel"
-rm -rf "${CTX_DIR}/wheels"
-mkdir -p "${CTX_DIR}/wheels"
-python3 -m pip download \
-  -r "${CTX_DIR}/requirements.txt" \
-  -c "${CTX_DIR}/constraints.txt" \
-  -d "${CTX_DIR}/wheels" \
-  --only-binary=:all: \
-  --platform manylinux_2_28_x86_64 \
-  --platform manylinux2014_x86_64 \
-  --platform manylinux1_x86_64 \
-  --platform any \
-  --python-version 3.12 \
-  --implementation cp \
-  --abi cp312 \
-  -i https://mirrors.aliyun.com/pypi/simple
+echo "[3/5] 在宿主机预装 linux amd64 依赖（uv，秒级完成）"
+rm -rf "${CTX_DIR}/pylibs"
+# 在构建目录内用相对路径执行，避免工程路径中的空格影响 uv 参数解析
+(
+  cd "${CTX_DIR}"
+  uv pip install \
+    --target pylibs \
+    --python-version 3.12 \
+    --python-platform x86_64-manylinux_2_28 \
+    --only-binary :all: \
+    -r requirements.txt \
+    -c constraints.txt \
+    --index-url https://mirrors.aliyun.com/pypi/simple
+)
+
+echo "[3/5] 下载 linux amd64 静态 ffmpeg"
+FFMPEG_TMP="$(mktemp -d)"
+curl -L --retry 3 --fail -o "${FFMPEG_TMP}/ffmpeg.tar.xz" \
+  "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+tar -xJf "${FFMPEG_TMP}/ffmpeg.tar.xz" -C "${FFMPEG_TMP}"
+FFMPEG_DIR="$(find "${FFMPEG_TMP}" -maxdepth 1 -type d -name 'ffmpeg-*-static' | head -n 1)"
+cp "${FFMPEG_DIR}/ffmpeg" "${CTX_DIR}/ffmpeg"
+cp "${FFMPEG_DIR}/ffprobe" "${CTX_DIR}/ffprobe"
+chmod +x "${CTX_DIR}/ffmpeg" "${CTX_DIR}/ffprobe"
+rm -rf "${FFMPEG_TMP}"
 
 echo "[4/5] 构建镜像 ${IMAGE} (${PLATFORM})"
 docker buildx build \

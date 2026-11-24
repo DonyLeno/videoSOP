@@ -2,8 +2,8 @@ import { brandReplace, currentLang, t } from './i18n.js';
 import { formatRole } from './format.js';
 import { loadUserList } from './users.js';
 import { clearScope } from './scope.js';
-import { pollTaskStatus } from './detection.js';
-import { currentStats, renderStats } from './review.js';
+import { pollTaskStatus } from './detection.js?v=20261124';
+import { currentStats, renderStats } from './review.js?v=20261124';
 
 export async function fetchVersion() {
   try {

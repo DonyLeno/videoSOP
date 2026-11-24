@@ -3,8 +3,8 @@ import { authFetch, currentUser, notify, switchTab } from './core.js';
 import { formatTime } from './format.js';
 import { t } from './i18n.js';
 import { currentScope, getStoredScope, setProjectScope, setScopeLine, setScopeStation } from './scope.js';
-import { loadVideoList } from './detection.js';
-import { loadResultList } from './review.js';
+import { loadVideoList } from './detection.js?v=20261124';
+import { loadResultList } from './review.js?v=20261124';
 import { openLineModal, renderProjectSettings, setupProjectSettingsUI } from './org.js';
 import { renderStationPlan, setupStationPlanUI } from './stations.js';
 
@@ -345,6 +345,10 @@ function renderOverview() {
           <td>${formatTime(video.created_at)}</td>
           <td class="table-actions">
             <button class="btn btn-small" type="button" data-overview-detect="${escapeHtml(video.filename)}">${t('project_detect')}</button>
+            <label class="detect-long-option detect-long-option-row" title="${t('detect_long_video_hint')}">
+              <input type="checkbox" data-overview-long="${escapeHtml(video.filename)}">
+              <span>${t('detect_long_video')}</span>
+            </label>
             ${
               video.latest_result
                 ? `<button class="btn btn-small" type="button" data-overview-result="${escapeHtml(video.latest_result.md_path)}" data-overview-video="${escapeHtml(video.latest_result.video_copy_path || '')}">${t('project_view_result')}</button>`
@@ -402,7 +406,11 @@ function renderOverview() {
 function bindOverviewActions(root) {
   if (!root) return;
   root.querySelectorAll('[data-overview-detect]').forEach((btn) => {
-    btn.addEventListener('click', () => startDetectionForVideo(btn.dataset.overviewDetect));
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.table-actions');
+      const longVideo = Boolean(row?.querySelector('input[type="checkbox"]')?.checked);
+      startDetectionForVideo(btn.dataset.overviewDetect, longVideo);
+    });
   });
   root.querySelectorAll('[data-overview-result]').forEach((btn) => {
     btn.addEventListener('click', () =>
@@ -437,6 +445,10 @@ function renderVideoLibrary() {
         <td>${resultStatusForVideo(video)}</td>
         <td class="table-actions">
           <button class="btn btn-small" type="button" data-video-detect="${escapeHtml(video.filename)}">${t('project_detect')}</button>
+          <label class="detect-long-option detect-long-option-row" title="${t('detect_long_video_hint')}">
+            <input type="checkbox" data-video-long="${escapeHtml(video.filename)}">
+            <span>${t('detect_long_video')}</span>
+          </label>
           ${
             video.latest_result
               ? `<button class="btn btn-small" type="button" data-video-result="${escapeHtml(video.latest_result.md_path)}" data-video-result-video="${escapeHtml(video.latest_result.video_copy_path || '')}">${t('project_view_result')}</button>`
@@ -448,7 +460,11 @@ function renderVideoLibrary() {
     .join('');
 
   body.querySelectorAll('[data-video-detect]').forEach((btn) => {
-    btn.addEventListener('click', () => startDetectionForVideo(btn.dataset.videoDetect));
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.table-actions');
+      const longVideo = Boolean(row?.querySelector('input[type="checkbox"]')?.checked);
+      startDetectionForVideo(btn.dataset.videoDetect, longVideo);
+    });
   });
   body.querySelectorAll('[data-video-result]').forEach((btn) => {
     btn.addEventListener('click', () =>
@@ -612,8 +628,12 @@ async function deleteLine(lineId) {
   }
 }
 
-export async function startDetectionForVideo(filename) {
+export async function startDetectionForVideo(filename, longVideo = false) {
   switchProjectTab('detection');
+  if (longVideo) {
+    const longCheck = document.getElementById('detectLongVideo');
+    if (longCheck) longCheck.checked = true;
+  }
   const sel = document.getElementById('detectVideoSelect');
   if (!sel) return;
   const value = 'data/' + filename;

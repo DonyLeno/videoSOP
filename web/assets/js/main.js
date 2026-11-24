@@ -2,8 +2,8 @@ import { applyLanguage, getStoredLang, t } from './i18n.js';
 import { fetchVersion, initSidebar, notify, setupAuthUI, switchTab } from './core.js';
 import { setupUserManagement } from './users.js';
 import { setupProjectUI } from './projects.js';
-import { setupDetectionUI } from './detection.js';
-import { exportActionsCsv, loadResultList, setupReviewUI, showRevisionHistory } from './review.js';
+import { setupDetectionUI } from './detection.js?v=20261124';
+import { exportActionsCsv, loadResultList, setupReviewUI, showRevisionHistory } from './review.js?v=20261124';
 import { setupCalculatorUI, setupSettingsUI } from './settings.js';
 
 // HTML 内联事件桥接：模块作用域函数挂到 window（index.html / partials 的内联 onclick 需要）
